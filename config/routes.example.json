@@ -1,0 +1,47 @@
+{
+  "routes": [
+    {
+      "host": "shiguanglab.com",
+      "path_prefix": "/_auth/login/",
+      "product_id": "login",
+      "audience": "auth-service",
+      "upstream": "http://auth-service:8081",
+      "public_prefixes": [
+        "/_auth/login/"
+      ],
+      "required_entitlements": [],
+      "forward_authorization": false
+    },
+    {
+      "host": "shiguanglab.com",
+      "path_prefix": "/",
+      "product_id": "website",
+      "audience": "website",
+      "upstream": "http://website:8080",
+      "public_prefixes": [
+        "/",
+        "/assets/",
+        "/downloads/",
+        "/login",
+        "/login/"
+      ],
+      "required_entitlements": [],
+      "forward_authorization": false
+    },
+    {
+      "host": "opc.shiguanglab.com",
+      "path_prefix": "/",
+      "product_id": "superagents",
+      "audience": "superagents-bff",
+      "upstream": "http://opc-web:8080",
+      "public_prefixes": [
+        "/health",
+        "/assets/"
+      ],
+      "required_entitlements": [
+        "superagents:access"
+      ],
+      "forward_authorization": false
+    }
+  ]
+}
