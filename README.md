@@ -43,6 +43,8 @@ Routes use exact host matching and then select the longest matching
 `path_prefix`. This allows `shiguanglab.com/_auth/login/*` to reach Auth
 Service while normal website paths reach the static website origin. Public
 prefixes ending in `/` match a subtree; other values match one exact path.
+Set `strip_prefix` when an externally namespaced API should reach an upstream
+that serves from `/`; it must be a parent of the route's `path_prefix`.
 
 ```json
 {
@@ -60,6 +62,10 @@ prefixes ending in `/` match a subtree; other values match one exact path.
   ]
 }
 ```
+
+For example, the Huiguang route maps
+`/api/platform/v1/me/points` to Platform Service `/v1/me/points` using
+`"strip_prefix": "/api/platform"`.
 
 ## Commands
 

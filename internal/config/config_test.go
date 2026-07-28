@@ -35,3 +35,30 @@ func TestValidateRejectsWildcardAndDuplicateHosts(t *testing.T) {
 		t.Fatalf("same host with different path prefixes should be valid: %v", err)
 	}
 }
+
+func TestValidateStripPrefix(t *testing.T) {
+	base := Config{
+		AuthServiceURL:    "http://auth-service:8081",
+		AuthServiceToken:  "secret",
+		SessionCookieName: "__Secure-sg_session",
+		Routes: []Route{{
+			Host:        "huiguang.shiguanglab.com",
+			PathPrefix:  "/api/platform/",
+			StripPrefix: "/api/platform/",
+			ProductID:   "platform",
+			Audience:    "platform-service",
+			Upstream:    "http://platform-service:8082",
+		}},
+	}
+	if err := base.Validate(); err != nil {
+		t.Fatalf("valid strip prefix rejected: %v", err)
+	}
+	if got := base.Routes[0].StripPrefix; got != "/api/platform" {
+		t.Fatalf("normalized strip prefix = %q", got)
+	}
+
+	base.Routes[0].StripPrefix = "/api/other"
+	if err := base.Validate(); err == nil {
+		t.Fatal("strip prefix outside path prefix was accepted")
+	}
+}

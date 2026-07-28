@@ -22,6 +22,7 @@ type Config struct {
 type Route struct {
 	Host                 string   `json:"host"`
 	PathPrefix           string   `json:"path_prefix"`
+	StripPrefix          string   `json:"strip_prefix,omitempty"`
 	ProductID            string   `json:"product_id"`
 	Audience             string   `json:"audience"`
 	Upstream             string   `json:"upstream"`
@@ -87,6 +88,7 @@ func (c Config) Validate() error {
 		if route.PathPrefix == "" {
 			route.PathPrefix = "/"
 		}
+		route.StripPrefix = strings.TrimSuffix(strings.TrimSpace(route.StripPrefix), "/")
 		route.ProductID = strings.TrimSpace(route.ProductID)
 		route.Audience = strings.TrimSpace(route.Audience)
 		route.Upstream = strings.TrimSpace(route.Upstream)
@@ -95,6 +97,14 @@ func (c Config) Validate() error {
 		}
 		if !strings.HasPrefix(route.PathPrefix, "/") {
 			return fmt.Errorf("route %d: path_prefix must start with /", i)
+		}
+		if route.StripPrefix != "" {
+			if !strings.HasPrefix(route.StripPrefix, "/") || route.StripPrefix == "/" {
+				return fmt.Errorf("route %d: strip_prefix must be an absolute non-root path", i)
+			}
+			if !pathPrefixMatch(route.PathPrefix, route.StripPrefix) {
+				return fmt.Errorf("route %d: strip_prefix must be a parent of path_prefix", i)
+			}
 		}
 		key := route.Host + "\x00" + route.PathPrefix
 		if _, ok := seen[key]; ok {
@@ -110,6 +120,10 @@ func (c Config) Validate() error {
 		}
 	}
 	return nil
+}
+
+func pathPrefixMatch(path, prefix string) bool {
+	return path == prefix || strings.HasPrefix(path, prefix+"/")
 }
 
 func envOr(name, fallback string) string {

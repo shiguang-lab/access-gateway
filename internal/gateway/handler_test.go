@@ -172,3 +172,38 @@ func TestHandlerUsesLongestPathPrefix(t *testing.T) {
 		t.Fatalf("body = %q", body)
 	}
 }
+
+func TestHandlerStripsConfiguredUpstreamPathPrefix(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if got := request.URL.Path; got != "/v1/me/points" {
+			t.Errorf("upstream path = %q", got)
+		}
+		if got := request.URL.RawQuery; got != "limit=10" {
+			t.Errorf("upstream query = %q", got)
+		}
+		response.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+
+	handler, err := NewHandler(config.Config{
+		SessionCookieName: "__Secure-sg_session",
+		Routes: []config.Route{{
+			Host:        "huiguang.shiguanglab.com",
+			PathPrefix:  "/api/platform/",
+			StripPrefix: "/api/platform",
+			ProductID:   "platform",
+			Audience:    "platform-service",
+			Upstream:    upstream.URL,
+		}},
+	}, &fakeAuthorizer{decision: authz.DecisionResponse{Allow: true, Status: http.StatusOK}}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "https://huiguang.shiguanglab.com/api/platform/v1/me/points?limit=10", nil)
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("status = %d", recorder.Code)
+	}
+}

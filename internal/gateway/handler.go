@@ -51,6 +51,13 @@ func NewHandler(cfg config.Config, authorizer authz.Authorizer, logger *slog.Log
 		}
 		proxy := &httputil.ReverseProxy{
 			Rewrite: func(request *httputil.ProxyRequest) {
+				if routeConfig.StripPrefix != "" {
+					request.Out.URL.Path = strings.TrimPrefix(request.Out.URL.Path, routeConfig.StripPrefix)
+					if request.Out.URL.Path == "" {
+						request.Out.URL.Path = "/"
+					}
+					request.Out.URL.RawPath = ""
+				}
 				request.SetURL(target)
 				request.Out.Host = target.Host
 				request.SetXForwarded()
