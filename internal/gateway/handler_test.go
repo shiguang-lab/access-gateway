@@ -131,6 +131,50 @@ func TestPublicPathBypassesAuthService(t *testing.T) {
 	}
 }
 
+func TestExactPublicRootDoesNotExposeProtectedApp(t *testing.T) {
+	authorizer := &fakeAuthorizer{decision: authz.DecisionResponse{
+		Allow:    false,
+		Status:   http.StatusFound,
+		Location: "https://shiguanglab.com/login?return_to=https%3A%2F%2Fhuiguang.shiguanglab.com%2Fapp",
+	}}
+	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		response.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	handler, err := NewHandler(config.Config{
+		SessionCookieName: "__Secure-sg_session",
+		Routes: []config.Route{{
+			Host:        "huiguang.shiguanglab.com",
+			ProductID:   "huiguang",
+			Audience:    "huiguang-web",
+			Upstream:    upstream.URL,
+			PublicPaths: []string{"/"},
+		}},
+	}, authorizer, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rootRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(rootRecorder, httptest.NewRequest(http.MethodGet, "https://huiguang.shiguanglab.com/", nil))
+	if rootRecorder.Code != http.StatusOK {
+		t.Fatalf("root status = %d", rootRecorder.Code)
+	}
+	if authorizer.request.RequestID != "" {
+		t.Fatal("exact public root unexpectedly called auth service")
+	}
+
+	appRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(appRecorder, httptest.NewRequest(http.MethodGet, "https://huiguang.shiguanglab.com/app", nil))
+	if appRecorder.Code != http.StatusFound {
+		t.Fatalf("app status = %d", appRecorder.Code)
+	}
+	if authorizer.request.Path != "/app" {
+		t.Fatalf("authorized path = %q", authorizer.request.Path)
+	}
+}
+
 func TestHandlerUsesLongestPathPrefix(t *testing.T) {
 	website := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
 		response.Write([]byte("website"))

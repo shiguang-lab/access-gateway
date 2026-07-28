@@ -41,8 +41,10 @@ configuration must be injected by the process supervisor or container runtime.
 
 Routes use exact host matching and then select the longest matching
 `path_prefix`. This allows `shiguanglab.com/_auth/login/*` to reach Auth
-Service while normal website paths reach the static website origin. Public
-prefixes ending in `/` match a subtree; other values match one exact path.
+Service while normal website paths reach the static website origin. Use
+`public_paths` for exact anonymous paths and `public_prefixes` for anonymous
+subtrees. Prefixes ending in `/` match a subtree; other prefixes match one
+exact path for backwards compatibility.
 Set `strip_prefix` when an externally namespaced API should reach an upstream
 that serves from `/`; it must be a parent of the route's `path_prefix`.
 
@@ -66,9 +68,11 @@ that serves from `/`; it must be a parent of the route's `path_prefix`.
 For example, the Huiguang route maps
 `/api/platform/v1/me/points` to Platform Service `/v1/me/points` using
 `"strip_prefix": "/api/platform"`.
-Huiguang remains a standalone product at `huiguang.shiguanglab.com`: its
-document routes require `huiguang:access`, while only static assets are public.
-Unauthenticated document requests are redirected to the shared login page.
+Huiguang remains a standalone product at `huiguang.shiguanglab.com`. Its exact
+root path `/` and static assets are public so the product introduction can be
+viewed anonymously. `/app` and all creation routes require `huiguang:access`;
+unauthenticated requests are redirected to the shared login page and return to
+the requested Huiguang route after login.
 
 ## Commands
 

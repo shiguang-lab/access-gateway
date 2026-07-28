@@ -103,7 +103,7 @@ func (h *Handler) ServeHTTP(response http.ResponseWriter, request *http.Request)
 	if requestID == "" {
 		requestID = newRequestID()
 	}
-	public := isPublicPath(request.URL.Path, matched.config.PublicPrefixes)
+	public := isPublicPath(request.URL.Path, matched.config.PublicPaths, matched.config.PublicPrefixes)
 	decision := authz.DecisionResponse{Allow: true, Status: http.StatusOK}
 	if !public {
 		var err error
@@ -236,7 +236,12 @@ func clientIP(remoteAddr string) string {
 	return remoteAddr
 }
 
-func isPublicPath(path string, prefixes []string) bool {
+func isPublicPath(path string, exactPaths, prefixes []string) bool {
+	for _, publicPath := range exactPaths {
+		if path == publicPath {
+			return true
+		}
+	}
 	for _, prefix := range prefixes {
 		if strings.HasSuffix(prefix, "/") {
 			if strings.HasPrefix(path, prefix) {

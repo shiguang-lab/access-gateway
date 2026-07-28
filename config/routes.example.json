@@ -62,11 +62,15 @@
       "product_id": "huiguang",
       "audience": "huiguang-web",
       "upstream": "http://huiguang-web:3000",
+      "public_paths": [
+        "/"
+      ],
       "public_prefixes": [
         "/assets/",
         "/icons/",
         "/config.js",
         "/logo.svg",
+        "/shiguang-mark.svg",
         "/favicon.ico"
       ],
       "required_entitlements": [

@@ -26,6 +26,7 @@ type Route struct {
 	ProductID            string   `json:"product_id"`
 	Audience             string   `json:"audience"`
 	Upstream             string   `json:"upstream"`
+	PublicPaths          []string `json:"public_paths,omitempty"`
 	PublicPrefixes       []string `json:"public_prefixes"`
 	RequiredEntitlements []string `json:"required_entitlements"`
 	ForwardAuthorization bool     `json:"forward_authorization"`
@@ -113,6 +114,11 @@ func (c Config) Validate() error {
 		seen[key] = struct{}{}
 		if route.ProductID == "" || route.Audience == "" {
 			return fmt.Errorf("route %d: product_id and audience are required", i)
+		}
+		for _, publicPath := range route.PublicPaths {
+			if !strings.HasPrefix(publicPath, "/") {
+				return fmt.Errorf("route %d: public_paths entries must start with /", i)
+			}
 		}
 		target, err := url.Parse(route.Upstream)
 		if err != nil || target.Scheme == "" || target.Host == "" {
