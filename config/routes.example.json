@@ -63,9 +63,15 @@
       "audience": "huiguang-web",
       "upstream": "http://huiguang-web:3000",
       "public_prefixes": [
-        "/"
+        "/assets/",
+        "/icons/",
+        "/config.js",
+        "/logo.svg",
+        "/favicon.ico"
       ],
-      "required_entitlements": [],
+      "required_entitlements": [
+        "huiguang:access"
+      ],
       "forward_authorization": false
     }
   ]

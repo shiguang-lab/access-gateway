@@ -66,6 +66,9 @@ that serves from `/`; it must be a parent of the route's `path_prefix`.
 For example, the Huiguang route maps
 `/api/platform/v1/me/points` to Platform Service `/v1/me/points` using
 `"strip_prefix": "/api/platform"`.
+Huiguang remains a standalone product at `huiguang.shiguanglab.com`: its
+document routes require `huiguang:access`, while only static assets are public.
+Unauthenticated document requests are redirected to the shared login page.
 
 ## Commands
 
