@@ -251,3 +251,59 @@ func TestHandlerStripsConfiguredUpstreamPathPrefix(t *testing.T) {
 		t.Fatalf("status = %d", recorder.Code)
 	}
 }
+
+func TestMainSitePlatformRouteStaysProtected(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if got := request.URL.Path; got != "/v1/me/points" {
+			t.Errorf("upstream path = %q", got)
+		}
+		response.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+
+	authorizer := &fakeAuthorizer{decision: authz.DecisionResponse{
+		Allow:         true,
+		Status:        http.StatusOK,
+		IdentityToken: "trusted.jwt",
+	}}
+	handler, err := NewHandler(config.Config{
+		SessionCookieName: "__Secure-sg_session",
+		Routes: []config.Route{
+			{
+				Host:                 "shiguanglab.com",
+				PathPrefix:           "/api/platform/",
+				StripPrefix:          "/api/platform",
+				ProductID:            "platform",
+				Audience:             "platform-service",
+				Upstream:             upstream.URL,
+				RequiredEntitlements: []string{"platform:access"},
+			},
+			{
+				Host:           "shiguanglab.com",
+				PathPrefix:     "/",
+				ProductID:      "website",
+				Audience:       "website",
+				Upstream:       upstream.URL,
+				PublicPrefixes: []string{"/"},
+			},
+		},
+	}, authorizer, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "https://shiguanglab.com/api/platform/v1/me/points", nil))
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("status = %d", recorder.Code)
+	}
+	if authorizer.request.Public {
+		t.Fatal("platform route unexpectedly treated as public")
+	}
+	if authorizer.request.ProductID != "platform" || authorizer.request.Audience != "platform-service" {
+		t.Fatalf("authorization target = %q %q", authorizer.request.ProductID, authorizer.request.Audience)
+	}
+	if len(authorizer.request.RequiredEntitlements) != 1 || authorizer.request.RequiredEntitlements[0] != "platform:access" {
+		t.Fatalf("required entitlements = %#v", authorizer.request.RequiredEntitlements)
+	}
+}

@@ -68,6 +68,9 @@ that serves from `/`; it must be a parent of the route's `path_prefix`.
 For example, the Huiguang route maps
 `/api/platform/v1/me/points` to Platform Service `/v1/me/points` using
 `"strip_prefix": "/api/platform"`.
+The main website uses the same protected prefix for the personal points center
+under `/account/points`; the longer `/api/platform/` route takes precedence
+over the public website root route.
 Huiguang remains a standalone product at `huiguang.shiguanglab.com`. Its exact
 root path `/` and static assets are public so the product introduction can be
 viewed anonymously. `/app` and all creation routes require `huiguang:access`;

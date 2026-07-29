@@ -14,6 +14,19 @@
     },
     {
       "host": "shiguanglab.com",
+      "path_prefix": "/api/platform/",
+      "strip_prefix": "/api/platform",
+      "product_id": "platform",
+      "audience": "platform-service",
+      "upstream": "http://platform-service:8082",
+      "public_prefixes": [],
+      "required_entitlements": [
+        "platform:access"
+      ],
+      "forward_authorization": false
+    },
+    {
+      "host": "shiguanglab.com",
       "path_prefix": "/",
       "product_id": "website",
       "audience": "website",
