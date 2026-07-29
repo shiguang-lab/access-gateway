@@ -81,5 +81,9 @@ make test
 make build
 ```
 
+Every push to `main` publishes multi-architecture images to
+`ghcr.io/shiguang-lab/access-gateway:latest`. Immutable `sha-*` tags are also
+published for rollback.
+
 The module path assumes the future GitHub repository will be
 `github.com/shiguanglab/access-gateway`.
