@@ -1,7 +1,9 @@
 package gateway
 
 import (
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"log/slog"
@@ -11,16 +13,20 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/shiguanglab/access-gateway/internal/authz"
 	"github.com/shiguanglab/access-gateway/internal/config"
 )
 
 type Handler struct {
-	authorizer        authz.Authorizer
-	sessionCookieName string
-	routes            map[string][]*route
-	logger            *slog.Logger
+	authorizer                  authz.Authorizer
+	authServiceToken            string
+	identityHeaderSigningSecret []byte
+	now                         func() time.Time
+	sessionCookieName           string
+	routes                      map[string][]*route
+	logger                      *slog.Logger
 }
 
 type route struct {
@@ -36,12 +42,18 @@ func NewHandler(cfg config.Config, authorizer authz.Authorizer, logger *slog.Log
 		logger = slog.Default()
 	}
 	handler := &Handler{
-		authorizer:        authorizer,
-		sessionCookieName: cfg.SessionCookieName,
-		routes:            make(map[string][]*route, len(cfg.Routes)),
-		logger:            logger,
+		authorizer:                  authorizer,
+		authServiceToken:            cfg.AuthServiceToken,
+		identityHeaderSigningSecret: []byte(cfg.IdentityHeaderSigningSecret),
+		now:                         time.Now,
+		sessionCookieName:           cfg.SessionCookieName,
+		routes:                      make(map[string][]*route, len(cfg.Routes)),
+		logger:                      logger,
 	}
 	for _, routeConfig := range cfg.Routes {
+		if routeConfig.SignIdentityHeaders && len(handler.identityHeaderSigningSecret) < 32 {
+			return nil, errors.New("identity header signing secret must be at least 32 characters")
+		}
 		if routeConfig.PathPrefix == "" {
 			routeConfig.PathPrefix = "/"
 		}
@@ -63,7 +75,9 @@ func NewHandler(cfg config.Config, authorizer authz.Authorizer, logger *slog.Log
 				request.SetXForwarded()
 			},
 			ModifyResponse: func(response *http.Response) error {
-				filterResponseCookies(response.Header, cfg.SessionCookieName)
+				if !routeConfig.ForwardSessionCookie {
+					filterResponseCookies(response.Header, cfg.SessionCookieName)
+				}
 				return nil
 			},
 			ErrorHandler: func(response http.ResponseWriter, request *http.Request, err error) {
@@ -96,6 +110,11 @@ func (h *Handler) ServeHTTP(response http.ResponseWriter, request *http.Request)
 	matched, ok := h.matchRoute(host, request.URL.Path)
 	if !ok {
 		http.Error(response, http.StatusText(http.StatusMisdirectedRequest), http.StatusMisdirectedRequest)
+		return
+	}
+	if !methodAllowed(request.Method, matched.config.AllowedMethods) {
+		response.Header().Set("Allow", strings.Join(matched.config.AllowedMethods, ", "))
+		http.Error(response, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -144,24 +163,51 @@ func (h *Handler) ServeHTTP(response http.ResponseWriter, request *http.Request)
 		return
 	}
 
-	sanitizeRequest(request.Header, h.sessionCookieName, matched.config.ForwardAuthorization)
+	sanitizeRequest(request.Header, h.sessionCookieName, matched.config.ForwardAuthorization, matched.config.ForwardSessionCookie)
+	if matched.config.ForwardGatewayToken {
+		request.Header.Set("X-SG-Gateway-Token", h.authServiceToken)
+	}
 	request.Header.Set("X-SG-Request-ID", requestID)
 	if decision.IdentityToken != "" {
 		request.Header.Set("X-SG-Identity", decision.IdentityToken)
+		if matched.config.SignIdentityHeaders {
+			timestamp := h.now().UTC().Format(time.RFC3339Nano)
+			request.Header.Set("X-SG-Identity-Timestamp", timestamp)
+			request.Header.Set("X-SG-Identity-Signature", signIdentityHeader(timestamp, decision.IdentityToken, h.identityHeaderSigningSecret))
+		}
 	}
 	matched.proxy.ServeHTTP(response, request)
 }
 
+func signIdentityHeader(timestamp, identity string, secret []byte) string {
+	mac := hmac.New(sha256.New, secret)
+	mac.Write([]byte(timestamp + "." + identity))
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
 func (h *Handler) matchRoute(host, path string) (*route, bool) {
 	for _, candidate := range h.routes[host] {
-		if pathPrefixMatch(path, candidate.config.PathPrefix) {
+		if candidate.config.ExactPath && path == candidate.config.PathPrefix ||
+			!candidate.config.ExactPath && pathPrefixMatch(path, candidate.config.PathPrefix) {
 			return candidate, true
 		}
 	}
 	return nil, false
 }
 
-func sanitizeRequest(header http.Header, sessionCookieName string, forwardAuthorization bool) {
+func methodAllowed(method string, allowed []string) bool {
+	if len(allowed) == 0 {
+		return true
+	}
+	for _, candidate := range allowed {
+		if method == candidate || method == http.MethodHead && candidate == http.MethodGet {
+			return true
+		}
+	}
+	return false
+}
+
+func sanitizeRequest(header http.Header, sessionCookieName string, forwardAuthorization, forwardSessionCookie bool) {
 	for name := range header {
 		lower := strings.ToLower(name)
 		if strings.HasPrefix(lower, "x-sg-") || strings.HasPrefix(lower, "x-user-") {
@@ -175,7 +221,9 @@ func sanitizeRequest(header http.Header, sessionCookieName string, forwardAuthor
 	if !forwardAuthorization {
 		header.Del("Authorization")
 	}
-	filterRequestCookie(header, sessionCookieName)
+	if !forwardSessionCookie {
+		filterRequestCookie(header, sessionCookieName)
+	}
 }
 
 func filterRequestCookie(header http.Header, blockedName string) {

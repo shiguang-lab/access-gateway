@@ -1,5 +1,7 @@
 .git
 .env
+.env.*
+secrets
 bin
 coverage.out
 *.log

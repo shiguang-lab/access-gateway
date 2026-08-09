@@ -13,13 +13,129 @@
       "forward_authorization": false
     },
     {
-      "host": "shiguanglab.com",
-      "path_prefix": "/api/platform/",
-      "strip_prefix": "/api/platform",
-      "product_id": "platform",
-      "audience": "platform-service",
-      "upstream": "http://platform-service:8082",
+      "host": "points.shiguanglab.com",
+      "path_prefix": "/api/auth/session",
+      "exact_path": true,
+      "product_id": "points-auth",
+      "audience": "auth-service",
+      "upstream": "http://auth-service:8081",
+      "allowed_methods": [
+        "GET"
+      ],
+      "public_prefixes": [
+        "/api/auth/session"
+      ],
+      "required_entitlements": [],
+      "forward_authorization": false,
+      "forward_gateway_token": true,
+      "forward_session_cookie": true
+    },
+    {
+      "host": "points.shiguanglab.com",
+      "path_prefix": "/api/auth/logout",
+      "exact_path": true,
+      "product_id": "points-auth",
+      "audience": "auth-service",
+      "upstream": "http://auth-service:8081",
+      "allowed_methods": [
+        "POST"
+      ],
+      "public_prefixes": [
+        "/api/auth/logout"
+      ],
+      "required_entitlements": [],
+      "forward_authorization": false,
+      "forward_gateway_token": true,
+      "forward_session_cookie": true
+    },
+    {
+      "host": "points.shiguanglab.com",
+      "path_prefix": "/api/v1/me/",
+      "strip_prefix": "/api",
+      "product_id": "points",
+      "audience": "points-service",
+      "upstream": "http://points-service:8082",
       "public_prefixes": [],
+      "required_entitlements": [
+        "platform:access"
+      ],
+      "forward_authorization": false
+    },
+    {
+      "host": "points.shiguanglab.com",
+      "path_prefix": "/api/v1/admin/points/",
+      "strip_prefix": "/api",
+      "product_id": "points",
+      "audience": "points-service",
+      "upstream": "http://points-service:8082",
+      "public_prefixes": [],
+      "required_entitlements": [
+        "platform:access"
+      ],
+      "forward_authorization": false
+    },
+    {
+      "host": "points.shiguanglab.com",
+      "path_prefix": "/api/v1/integration-admin/points/",
+      "strip_prefix": "/api",
+      "product_id": "points",
+      "audience": "points-service",
+      "upstream": "http://points-service:8082",
+      "public_prefixes": [],
+      "required_entitlements": [
+        "platform:access"
+      ],
+      "forward_authorization": false
+    },
+    {
+      "host": "points.shiguanglab.com",
+      "path_prefix": "/api/platform/v1/me/",
+      "strip_prefix": "/api/platform",
+      "product_id": "points",
+      "audience": "points-service",
+      "upstream": "http://points-service:8082",
+      "public_prefixes": [],
+      "required_entitlements": [
+        "platform:access"
+      ],
+      "forward_authorization": false
+    },
+    {
+      "host": "points.shiguanglab.com",
+      "path_prefix": "/api/platform/v1/admin/points/",
+      "strip_prefix": "/api/platform",
+      "product_id": "points",
+      "audience": "points-service",
+      "upstream": "http://points-service:8082",
+      "public_prefixes": [],
+      "required_entitlements": [
+        "platform:access"
+      ],
+      "forward_authorization": false
+    },
+    {
+      "host": "points.shiguanglab.com",
+      "path_prefix": "/api/platform/v1/integration-admin/points/",
+      "strip_prefix": "/api/platform",
+      "product_id": "points",
+      "audience": "points-service",
+      "upstream": "http://points-service:8082",
+      "public_prefixes": [],
+      "required_entitlements": [
+        "platform:access"
+      ],
+      "forward_authorization": false
+    },
+    {
+      "host": "points.shiguanglab.com",
+      "path_prefix": "/",
+      "product_id": "points-ui",
+      "audience": "points-ui",
+      "upstream": "http://points-web:3000",
+      "public_prefixes": [
+        "/assets/",
+        "/health"
+      ],
       "required_entitlements": [
         "platform:access"
       ],
@@ -58,11 +174,24 @@
     },
     {
       "host": "huiguang.shiguanglab.com",
-      "path_prefix": "/api/platform/",
-      "strip_prefix": "/api/platform",
-      "product_id": "platform",
-      "audience": "platform-service",
-      "upstream": "http://platform-service:8082",
+      "path_prefix": "/api/huiguang/",
+      "product_id": "huiguang",
+      "audience": "huiguang-bff",
+      "upstream": "http://huiguang-bff:8080",
+      "public_prefixes": [],
+      "required_entitlements": [
+        "huiguang:access"
+      ],
+      "forward_authorization": false,
+      "sign_identity_headers": true
+    },
+    {
+      "host": "huiguang.shiguanglab.com",
+      "path_prefix": "/api/points/v1/me/",
+      "strip_prefix": "/api/points",
+      "product_id": "points",
+      "audience": "points-service",
+      "upstream": "http://points-service:8082",
       "public_prefixes": [],
       "required_entitlements": [
         "platform:access"

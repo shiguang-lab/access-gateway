@@ -11,25 +11,31 @@ import (
 )
 
 type Config struct {
-	Addr              string
-	AuthServiceURL    string
-	AuthServiceToken  string
-	SessionCookieName string
-	AuthTimeout       time.Duration
-	Routes            []Route
+	Addr                        string
+	AuthServiceURL              string
+	AuthServiceToken            string
+	IdentityHeaderSigningSecret string
+	SessionCookieName           string
+	AuthTimeout                 time.Duration
+	Routes                      []Route
 }
 
 type Route struct {
 	Host                 string   `json:"host"`
 	PathPrefix           string   `json:"path_prefix"`
+	ExactPath            bool     `json:"exact_path,omitempty"`
 	StripPrefix          string   `json:"strip_prefix,omitempty"`
 	ProductID            string   `json:"product_id"`
 	Audience             string   `json:"audience"`
 	Upstream             string   `json:"upstream"`
+	AllowedMethods       []string `json:"allowed_methods,omitempty"`
 	PublicPaths          []string `json:"public_paths,omitempty"`
 	PublicPrefixes       []string `json:"public_prefixes"`
 	RequiredEntitlements []string `json:"required_entitlements"`
 	ForwardAuthorization bool     `json:"forward_authorization"`
+	ForwardGatewayToken  bool     `json:"forward_gateway_token,omitempty"`
+	ForwardSessionCookie bool     `json:"forward_session_cookie,omitempty"`
+	SignIdentityHeaders  bool     `json:"sign_identity_headers,omitempty"`
 }
 
 type routeFile struct {
@@ -37,12 +43,17 @@ type routeFile struct {
 }
 
 func Load() (Config, error) {
+	identityHeaderSigningSecret, err := readSecret("IDENTITY_HEADER_SIGNING_SECRET", "IDENTITY_HEADER_SIGNING_SECRET_FILE")
+	if err != nil {
+		return Config{}, err
+	}
 	cfg := Config{
-		Addr:              envOr("GATEWAY_ADDR", ":8080"),
-		AuthServiceURL:    strings.TrimSpace(os.Getenv("AUTH_SERVICE_URL")),
-		AuthServiceToken:  strings.TrimSpace(os.Getenv("AUTH_SERVICE_TOKEN")),
-		SessionCookieName: envOr("SESSION_COOKIE_NAME", "__Secure-sg_session"),
-		AuthTimeout:       3 * time.Second,
+		Addr:                        envOr("GATEWAY_ADDR", ":8080"),
+		AuthServiceURL:              strings.TrimSpace(os.Getenv("AUTH_SERVICE_URL")),
+		AuthServiceToken:            strings.TrimSpace(os.Getenv("AUTH_SERVICE_TOKEN")),
+		IdentityHeaderSigningSecret: identityHeaderSigningSecret,
+		SessionCookieName:           envOr("SESSION_COOKIE_NAME", "__Secure-sg_session"),
+		AuthTimeout:                 3 * time.Second,
 	}
 
 	routesPath := strings.TrimSpace(os.Getenv("ROUTES_FILE"))
@@ -82,12 +93,26 @@ func (c Config) Validate() error {
 	}
 
 	seen := make(map[string]struct{}, len(c.Routes))
+	requiresIdentityHeaderSigning := false
 	for i := range c.Routes {
 		route := &c.Routes[i]
 		route.Host = strings.ToLower(strings.TrimSpace(route.Host))
 		route.PathPrefix = strings.TrimSpace(route.PathPrefix)
 		if route.PathPrefix == "" {
 			route.PathPrefix = "/"
+		}
+		for methodIndex, method := range route.AllowedMethods {
+			method = strings.ToUpper(strings.TrimSpace(method))
+			if method == "" {
+				return fmt.Errorf("route %d: allowed_methods must not contain an empty method", i)
+			}
+			route.AllowedMethods[methodIndex] = method
+		}
+		if route.ForwardGatewayToken && route.Audience != "auth-service" {
+			return fmt.Errorf("route %d: forward_gateway_token is restricted to auth-service routes", i)
+		}
+		if route.ForwardSessionCookie && route.Audience != "auth-service" {
+			return fmt.Errorf("route %d: forward_session_cookie is restricted to auth-service routes", i)
 		}
 		route.StripPrefix = strings.TrimSuffix(strings.TrimSpace(route.StripPrefix), "/")
 		route.ProductID = strings.TrimSpace(route.ProductID)
@@ -124,8 +149,23 @@ func (c Config) Validate() error {
 		if err != nil || target.Scheme == "" || target.Host == "" {
 			return fmt.Errorf("route %d: invalid upstream %q", i, route.Upstream)
 		}
+		requiresIdentityHeaderSigning = requiresIdentityHeaderSigning || route.SignIdentityHeaders
+	}
+	if requiresIdentityHeaderSigning && len(c.IdentityHeaderSigningSecret) < 32 {
+		return errors.New("IDENTITY_HEADER_SIGNING_SECRET must be at least 32 characters when signed identity headers are enabled")
 	}
 	return nil
+}
+
+func readSecret(valueName, fileName string) (string, error) {
+	if path := strings.TrimSpace(os.Getenv(fileName)); path != "" {
+		body, err := os.ReadFile(path)
+		if err != nil {
+			return "", fmt.Errorf("read %s: %w", fileName, err)
+		}
+		return strings.TrimSpace(string(body)), nil
+	}
+	return strings.TrimSpace(os.Getenv(valueName)), nil
 }
 
 func pathPrefixMatch(path, prefix string) bool {

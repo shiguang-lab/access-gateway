@@ -1,6 +1,26 @@
 package config
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+)
+
+const testIdentityHeaderSigningSecret = "test-identity-header-signing-secret-32"
+
+func TestExampleRoutesValidate(t *testing.T) {
+	routes, err := filepath.Abs(filepath.Join("..", "..", "config", "routes.example.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AUTH_SERVICE_URL", "http://auth-service:8081")
+	t.Setenv("AUTH_SERVICE_TOKEN", "gateway-secret")
+	t.Setenv("IDENTITY_HEADER_SIGNING_SECRET_FILE", "")
+	t.Setenv("IDENTITY_HEADER_SIGNING_SECRET", testIdentityHeaderSigningSecret)
+	t.Setenv("ROUTES_FILE", routes)
+	if _, err := Load(); err != nil {
+		t.Fatalf("example routes are invalid: %v", err)
+	}
+}
 
 func TestValidateRejectsWildcardAndDuplicateHosts(t *testing.T) {
 	base := Config{
@@ -33,6 +53,66 @@ func TestValidateRejectsWildcardAndDuplicateHosts(t *testing.T) {
 	}
 	if err := base.Validate(); err != nil {
 		t.Fatalf("same host with different path prefixes should be valid: %v", err)
+	}
+}
+
+func TestValidateRequiresIdentityHeaderSigningSecret(t *testing.T) {
+	base := Config{
+		AuthServiceURL:    "http://auth-service:8081",
+		AuthServiceToken:  "secret",
+		SessionCookieName: "__Secure-sg_session",
+		Routes: []Route{{
+			Host:                "huiguang.shiguanglab.com",
+			ProductID:           "huiguang",
+			Audience:            "huiguang-bff",
+			Upstream:            "http://huiguang-bff:8080",
+			SignIdentityHeaders: true,
+		}},
+	}
+	if err := base.Validate(); err == nil {
+		t.Fatal("signed identity route accepted without a signing secret")
+	}
+	base.IdentityHeaderSigningSecret = testIdentityHeaderSigningSecret
+	if err := base.Validate(); err != nil {
+		t.Fatalf("signed identity route rejected with a signing secret: %v", err)
+	}
+}
+
+func TestValidateRestrictsForwardedGatewayTokenToAuthService(t *testing.T) {
+	base := Config{
+		AuthServiceURL:    "http://auth-service:8081",
+		AuthServiceToken:  "secret",
+		SessionCookieName: "__Secure-sg_session",
+		Routes: []Route{{
+			Host:                "points.shiguanglab.com",
+			PathPrefix:          "/api/v1/me/",
+			ProductID:           "points",
+			Audience:            "points-service",
+			Upstream:            "http://points-service:8082",
+			ForwardGatewayToken: true,
+		}},
+	}
+	if err := base.Validate(); err == nil {
+		t.Fatal("non-auth route accepted with forwarded gateway token")
+	}
+}
+
+func TestValidateRestrictsForwardedSessionCookieToAuthService(t *testing.T) {
+	base := Config{
+		AuthServiceURL:    "http://auth-service:8081",
+		AuthServiceToken:  "secret",
+		SessionCookieName: "__Secure-sg_session",
+		Routes: []Route{{
+			Host:                 "points.shiguanglab.com",
+			PathPrefix:           "/api/v1/me/",
+			ProductID:            "points",
+			Audience:             "points-service",
+			Upstream:             "http://points-service:8082",
+			ForwardSessionCookie: true,
+		}},
+	}
+	if err := base.Validate(); err == nil {
+		t.Fatal("non-auth route accepted with forwarded session cookie")
 	}
 }
 

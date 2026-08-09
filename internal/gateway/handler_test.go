@@ -2,16 +2,22 @@ package gateway
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/shiguanglab/access-gateway/internal/authz"
 	"github.com/shiguanglab/access-gateway/internal/config"
 )
+
+const testIdentityHeaderSecret = "test-identity-header-signing-secret-32"
 
 type fakeAuthorizer struct {
 	decision authz.DecisionResponse
@@ -79,6 +85,65 @@ func TestHandlerStripsUntrustedIdentityAndSessionCookie(t *testing.T) {
 	if authorizer.request.Cookie == "" {
 		t.Fatal("auth service did not receive browser cookie")
 	}
+}
+
+func TestHandlerReplacesForgedExpiredAndReplayedIdentityHeaders(t *testing.T) {
+	fixedNow := time.Date(2026, time.August, 3, 12, 0, 0, 0, time.UTC)
+	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if got := request.URL.Path; got != "/api/huiguang/tasks/task-1" {
+			t.Errorf("Huiguang BFF path was rewritten: %q", got)
+		}
+		timestamp := request.Header.Get("X-SG-Identity-Timestamp")
+		if timestamp != fixedNow.Format(time.RFC3339Nano) {
+			t.Errorf("timestamp = %q", timestamp)
+		}
+		if got := request.Header.Get("X-SG-Identity"); got != "trusted.jwt" {
+			t.Errorf("identity = %q", got)
+		}
+		expected := hmac.New(sha256.New, []byte(testIdentityHeaderSecret))
+		expected.Write([]byte(timestamp + ".trusted.jwt"))
+		if got := request.Header.Get("X-SG-Identity-Signature"); !hmac.Equal(mustDecodeHex(t, got), expected.Sum(nil)) {
+			t.Errorf("signature was not replaced with a trusted value")
+		}
+		response.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+
+	handler, err := NewHandler(config.Config{
+		IdentityHeaderSigningSecret: testIdentityHeaderSecret,
+		SessionCookieName:           "__Secure-sg_session",
+		Routes: []config.Route{{
+			Host:                "huiguang.shiguanglab.com",
+			PathPrefix:          "/api/huiguang/",
+			ProductID:           "huiguang",
+			Audience:            "huiguang-bff",
+			Upstream:            upstream.URL,
+			SignIdentityHeaders: true,
+		}},
+	}, &fakeAuthorizer{decision: authz.DecisionResponse{Allow: true, Status: http.StatusOK, IdentityToken: "trusted.jwt"}}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler.now = func() time.Time { return fixedNow }
+
+	request := httptest.NewRequest(http.MethodGet, "https://huiguang.shiguanglab.com/api/huiguang/tasks/task-1", nil)
+	request.Header.Set("X-SG-Identity", "replayed.jwt")
+	request.Header.Set("X-SG-Identity-Timestamp", fixedNow.Add(-time.Hour).Format(time.RFC3339Nano))
+	request.Header.Set("X-SG-Identity-Signature", "forged")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("status = %d", recorder.Code)
+	}
+}
+
+func mustDecodeHex(t *testing.T, value string) []byte {
+	t.Helper()
+	decoded, err := hex.DecodeString(value)
+	if err != nil {
+		t.Fatalf("decode signature: %v", err)
+	}
+	return decoded
 }
 
 func TestHandlerFailsClosedWhenAuthorizationFails(t *testing.T) {
@@ -252,7 +317,7 @@ func TestHandlerStripsConfiguredUpstreamPathPrefix(t *testing.T) {
 	}
 }
 
-func TestMainSitePlatformRouteStaysProtected(t *testing.T) {
+func TestCompatibilityPlatformRouteStaysProtected(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if got := request.URL.Path; got != "/v1/me/points" {
 			t.Errorf("upstream path = %q", got)
@@ -270,11 +335,67 @@ func TestMainSitePlatformRouteStaysProtected(t *testing.T) {
 		SessionCookieName: "__Secure-sg_session",
 		Routes: []config.Route{
 			{
-				Host:                 "shiguanglab.com",
+				Host:                 "points.shiguanglab.com",
 				PathPrefix:           "/api/platform/",
 				StripPrefix:          "/api/platform",
-				ProductID:            "platform",
-				Audience:             "platform-service",
+				ProductID:            "points",
+				Audience:             "points-service",
+				Upstream:             upstream.URL,
+				RequiredEntitlements: []string{"platform:access"},
+			},
+			{
+				Host:           "points.shiguanglab.com",
+				PathPrefix:     "/",
+				ProductID:      "points-ui",
+				Audience:       "points-ui",
+				Upstream:       upstream.URL,
+				PublicPrefixes: []string{"/"},
+			},
+		},
+	}, authorizer, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "https://points.shiguanglab.com/api/platform/v1/me/points", nil))
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("status = %d", recorder.Code)
+	}
+	if authorizer.request.Public {
+		t.Fatal("platform route unexpectedly treated as public")
+	}
+	if authorizer.request.ProductID != "points" || authorizer.request.Audience != "points-service" {
+		t.Fatalf("authorization target = %q %q", authorizer.request.ProductID, authorizer.request.Audience)
+	}
+	if len(authorizer.request.RequiredEntitlements) != 1 || authorizer.request.RequiredEntitlements[0] != "platform:access" {
+		t.Fatalf("required entitlements = %#v", authorizer.request.RequiredEntitlements)
+	}
+}
+
+func TestDedicatedPointsRouteStaysProtected(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if got := request.URL.Path; got != "/v1/me/points" {
+			t.Errorf("upstream path = %q", got)
+		}
+		response.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+
+	authorizer := &fakeAuthorizer{decision: authz.DecisionResponse{
+		Allow:         true,
+		Status:        http.StatusOK,
+		IdentityToken: "trusted.jwt",
+	}}
+	handler, err := NewHandler(config.Config{
+		SessionCookieName: "__Secure-sg_session",
+		Routes: []config.Route{
+			{
+				Host:                 "points.shiguanglab.com",
+				PathPrefix:           "/api/v1/me/",
+				StripPrefix:          "/api",
+				ProductID:            "points",
+				Audience:             "points-service",
 				Upstream:             upstream.URL,
 				RequiredEntitlements: []string{"platform:access"},
 			},
@@ -293,17 +414,105 @@ func TestMainSitePlatformRouteStaysProtected(t *testing.T) {
 	}
 
 	recorder := httptest.NewRecorder()
-	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "https://shiguanglab.com/api/platform/v1/me/points", nil))
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "https://points.shiguanglab.com/api/v1/me/points", nil))
 	if recorder.Code != http.StatusNoContent {
 		t.Fatalf("status = %d", recorder.Code)
 	}
 	if authorizer.request.Public {
-		t.Fatal("platform route unexpectedly treated as public")
+		t.Fatal("points route unexpectedly treated as public")
 	}
-	if authorizer.request.ProductID != "platform" || authorizer.request.Audience != "platform-service" {
+	if authorizer.request.ProductID != "points" || authorizer.request.Audience != "points-service" {
 		t.Fatalf("authorization target = %q %q", authorizer.request.ProductID, authorizer.request.Audience)
 	}
 	if len(authorizer.request.RequiredEntitlements) != 1 || authorizer.request.RequiredEntitlements[0] != "platform:access" {
 		t.Fatalf("required entitlements = %#v", authorizer.request.RequiredEntitlements)
+	}
+}
+
+func TestPointsAuthSessionUsesExactAuthRouteAndGatewayCredential(t *testing.T) {
+	authUpstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/api/auth/session" {
+			t.Errorf("auth path = %q", request.URL.Path)
+		}
+		if request.Header.Get("X-SG-Gateway-Token") != "gateway-secret" {
+			t.Errorf("gateway token = %q", request.Header.Get("X-SG-Gateway-Token"))
+		}
+		if cookie, err := request.Cookie("__Secure-sg_session"); err != nil || cookie.Value != "session-1" {
+			t.Errorf("session cookie was not forwarded: %v, %#v", err, cookie)
+		}
+		response.Header().Add("Set-Cookie", "__Secure-sg_session=refreshed; Path=/; Secure; HttpOnly")
+		response.WriteHeader(http.StatusOK)
+	}))
+	defer authUpstream.Close()
+	uiCalls := 0
+	uiUpstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		uiCalls++
+		response.WriteHeader(http.StatusTeapot)
+	}))
+	defer uiUpstream.Close()
+
+	handler, err := NewHandler(config.Config{
+		AuthServiceToken:  "gateway-secret",
+		SessionCookieName: "__Secure-sg_session",
+		Routes: []config.Route{
+			{Host: "points.shiguanglab.com", PathPrefix: "/api/auth/session", ExactPath: true, ProductID: "points-auth", Audience: "auth-service", Upstream: authUpstream.URL, AllowedMethods: []string{http.MethodGet}, PublicPrefixes: []string{"/api/auth/session"}, ForwardGatewayToken: true, ForwardSessionCookie: true},
+			{Host: "points.shiguanglab.com", PathPrefix: "/", ProductID: "points-ui", Audience: "points-ui", Upstream: uiUpstream.URL, PublicPrefixes: []string{"/"}},
+		},
+	}, &fakeAuthorizer{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "https://points.shiguanglab.com/api/auth/session", nil)
+	request.AddCookie(&http.Cookie{Name: "__Secure-sg_session", Value: "session-1"})
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || uiCalls != 0 {
+		t.Fatalf("session status = %d, UI calls = %d", response.Code, uiCalls)
+	}
+	if got := response.Header().Get("Set-Cookie"); !strings.Contains(got, "__Secure-sg_session=refreshed") {
+		t.Fatalf("auth session Set-Cookie was filtered: %q", got)
+	}
+
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "https://points.shiguanglab.com/api/auth/session", nil))
+	if response.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("wrong-method status = %d", response.Code)
+	}
+}
+
+func TestPointsBrowserRoutesCannotReachMachineAPI(t *testing.T) {
+	pointsCalls := 0
+	pointsUpstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		pointsCalls++
+		response.WriteHeader(http.StatusNoContent)
+	}))
+	defer pointsUpstream.Close()
+	uiUpstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		response.WriteHeader(http.StatusNotFound)
+	}))
+	defer uiUpstream.Close()
+
+	handler, err := NewHandler(config.Config{
+		SessionCookieName: "__Secure-sg_session",
+		Routes: []config.Route{
+			{Host: "points.shiguanglab.com", PathPrefix: "/api/v1/me/", StripPrefix: "/api", ProductID: "points", Audience: "points-service", Upstream: pointsUpstream.URL},
+			{Host: "points.shiguanglab.com", PathPrefix: "/api/v1/admin/points/", StripPrefix: "/api", ProductID: "points", Audience: "points-service", Upstream: pointsUpstream.URL},
+			{Host: "points.shiguanglab.com", PathPrefix: "/", ProductID: "points-ui", Audience: "points-ui", Upstream: uiUpstream.URL, PublicPrefixes: []string{"/"}},
+		},
+	}, &fakeAuthorizer{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, path := range []string{"/api/v1/integration/token", "/api/v1/points/reservations"} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "https://points.shiguanglab.com"+path, nil))
+		if response.Code != http.StatusNotFound {
+			t.Fatalf("%s status = %d", path, response.Code)
+		}
+	}
+	if pointsCalls != 0 {
+		t.Fatalf("machine requests reached points upstream %d times", pointsCalls)
 	}
 }
