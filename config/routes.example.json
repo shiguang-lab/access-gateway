@@ -50,6 +50,24 @@
     },
     {
       "host": "points.shiguanglab.com",
+      "path_prefix": "/api/auth/iam/points-role-assignments/",
+      "product_id": "points-iam",
+      "audience": "auth-service",
+      "upstream": "http://auth-service:8081",
+      "allowed_methods": [
+        "POST",
+        "PUT"
+      ],
+      "public_prefixes": [],
+      "required_entitlements": [
+        "platform:access"
+      ],
+      "forward_authorization": false,
+      "forward_gateway_token": true,
+      "forward_session_cookie": true
+    },
+    {
+      "host": "points.shiguanglab.com",
       "path_prefix": "/api/v1/me/",
       "strip_prefix": "/api",
       "product_id": "points",

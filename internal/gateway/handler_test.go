@@ -481,6 +481,64 @@ func TestPointsAuthSessionUsesExactAuthRouteAndGatewayCredential(t *testing.T) {
 	}
 }
 
+func TestPointsIAMRoleManagementUsesProtectedAuthRoute(t *testing.T) {
+	authUpstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/api/auth/iam/points-role-assignments/search" {
+			t.Errorf("auth path = %q", request.URL.Path)
+		}
+		if request.Header.Get("X-SG-Gateway-Token") != "gateway-secret" {
+			t.Errorf("gateway token = %q", request.Header.Get("X-SG-Gateway-Token"))
+		}
+		if cookie, err := request.Cookie("__Secure-sg_session"); err != nil || cookie.Value != "session-1" {
+			t.Errorf("session cookie was not forwarded: %v, %#v", err, cookie)
+		}
+		if authorization := request.Header.Get("Authorization"); authorization != "" {
+			t.Errorf("browser authorization reached Auth Service: %q", authorization)
+		}
+		if origin := request.Header.Get("Origin"); origin != "https://points.shiguanglab.com" {
+			t.Errorf("browser origin was not preserved: %q", origin)
+		}
+		response.WriteHeader(http.StatusOK)
+	}))
+	defer authUpstream.Close()
+
+	authorizer := &fakeAuthorizer{decision: authz.DecisionResponse{Allow: true, Status: http.StatusOK, IdentityToken: "trusted.jwt"}}
+	handler, err := NewHandler(config.Config{
+		AuthServiceToken:  "gateway-secret",
+		SessionCookieName: "__Secure-sg_session",
+		Routes: []config.Route{
+			{
+				Host: "points.shiguanglab.com", PathPrefix: "/api/auth/iam/points-role-assignments/",
+				ProductID: "points-iam", Audience: "auth-service", Upstream: authUpstream.URL,
+				AllowedMethods: []string{http.MethodPost, http.MethodPut}, RequiredEntitlements: []string{"platform:access"},
+				ForwardGatewayToken: true, ForwardSessionCookie: true,
+			},
+		},
+	}, authorizer, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "https://points.shiguanglab.com/api/auth/iam/points-role-assignments/search", strings.NewReader(`{"query":"alice","limit":10}`))
+	request.AddCookie(&http.Cookie{Name: "__Secure-sg_session", Value: "session-1"})
+	request.Header.Set("Authorization", "Bearer forged-browser-token")
+	request.Header.Set("Origin", "https://points.shiguanglab.com")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d", response.Code)
+	}
+	if authorizer.request.Public {
+		t.Fatal("IAM role route was treated as public")
+	}
+	if authorizer.request.ProductID != "points-iam" || authorizer.request.Audience != "auth-service" {
+		t.Fatalf("authorization target = %q %q", authorizer.request.ProductID, authorizer.request.Audience)
+	}
+	if len(authorizer.request.RequiredEntitlements) != 1 || authorizer.request.RequiredEntitlements[0] != "platform:access" {
+		t.Fatalf("required entitlements = %#v", authorizer.request.RequiredEntitlements)
+	}
+}
+
 func TestPointsBrowserRoutesCannotReachMachineAPI(t *testing.T) {
 	pointsCalls := 0
 	pointsUpstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {

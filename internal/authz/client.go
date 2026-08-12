@@ -13,6 +13,8 @@ import (
 	"time"
 )
 
+const gatewayTokenHeader = "X-SG-Gateway-Token"
+
 type DecisionRequest struct {
 	RequestID            string   `json:"request_id"`
 	Method               string   `json:"method"`
@@ -75,7 +77,7 @@ func (c *Client) Authorize(ctx context.Context, input DecisionRequest) (Decision
 	if err != nil {
 		return DecisionResponse{}, fmt.Errorf("create authorization request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set(gatewayTokenHeader, c.token)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.httpClient.Do(req)

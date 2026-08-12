@@ -45,6 +45,13 @@ The service refuses to start without an auth URL, shared service token, and at
 least one valid route. The service does not implicitly load `.env`; deployment
 configuration must be injected by the process supervisor or container runtime.
 
+Access Gateway uses the canonical internal decision protocol
+`POST /v1/authorize` with a bounded JSON request. The shared credential is sent
+only as `X-SG-Gateway-Token`; `Authorization: Bearer` is not used for this
+protocol. Auth Service returns a structured decision for allow, deny, login
+redirect, identity assertion, and session-cookie updates. Any transport,
+authentication, or JSON decoding error fails closed.
+
 ## Route configuration
 
 Routes use exact host matching and then select the longest matching
@@ -77,9 +84,13 @@ For example, the dedicated Points routes map only `/api/v1/me/`,
 `/api/v1/admin/points/`, and `/api/v1/integration-admin/points/` to Points
 Service using `"strip_prefix": "/api"`. Exact `/api/auth/session` and
 `/api/auth/logout` routes go to Auth Service and accept only GET and POST,
-respectively. The gateway injects its internal credential only on those auth
-routes and forwards the shared session cookie in both directions only on those
-auth routes. Machine paths such as `/api/v1/integration/token` and
+respectively. The protected `/api/auth/iam/points-role-assignments/` prefix also
+goes to Auth Service, accepts only POST/PUT, and requires `platform:access`;
+Auth Service then enforces `opc:system-admin` from the refreshed session. The
+gateway injects its internal credential only on these exact auth routes and
+forwards the shared session cookie in both directions only on those auth
+routes. Browser `Authorization` is stripped. Machine paths such as
+`/api/v1/integration/token` and
 `/api/v1/points/*` therefore cannot reach Points Service through the browser
 host. Keep equivalent narrow `/api/platform/v1/...` routes during the
 compatibility release until callers migrate.
