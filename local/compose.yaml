@@ -1,0 +1,126 @@
+name: shiguang-points-local
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: points
+      POSTGRES_USER: points
+      POSTGRES_PASSWORD: local-points-only
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U points -d points"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    volumes:
+      - points-db:/var/lib/postgresql
+
+  redis:
+    image: redis:8-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  migrate:
+    image: postgres:18-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: local-points-only
+    volumes:
+      - ../../points-service/migrations:/migrations:ro
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        for migration in /migrations/*.up.sql; do
+          psql -h postgres -U points -d points -v ON_ERROR_STOP=1 -f "$$migration"
+        done
+
+  auth-service:
+    build:
+      context: ../../auth-service
+      dockerfile: Dockerfile.local
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      APP_ENV: development
+      AUTH_ADDR: :8081
+      GATEWAY_SHARED_TOKEN: local-gateway-shared-token-32-characters
+      SESSION_BACKEND: redis
+      SESSION_COOKIE_NAME: sg_local_session
+      SESSION_COOKIE_DOMAIN: ""
+      SESSION_ENCRYPTION_KEY: bG9jYWwtZml4dHVyZS1lbmNyeXB0aW9uLWtleS0zMiE=
+      REDIS_URL: redis://redis:6379/0
+      REDIS_KEY_PREFIX: "auth:local-session:"
+      PUBLIC_ORIGIN: http://127.0.0.1:18080
+      ALLOWED_RETURN_ORIGINS: http://127.0.0.1:18080
+      IAM_ROLE_ADMIN_ORIGINS: http://127.0.0.1:18080
+      IAM_ROLE_COMMAND_PREFIX: "auth:local-command:"
+      IAM_ROLE_COMMAND_TTL: 24h
+      IDENTITY_ISSUER: http://auth-service:8081
+      IDENTITY_KEY_ID: local-key
+      IDENTITY_TOKEN_TTL: 1m
+      DEFAULT_ENTITLEMENTS: platform:access
+      LOCAL_IDENTITY_FIXTURE: "1"
+      LOCAL_IDENTITY_ORIGIN: http://127.0.0.1:18080
+      LOCAL_IDENTITY_SERVICE_TOKEN: local-points-directory-token-32-chars
+      LOCAL_IDENTITY_REDIS_PREFIX: "auth:local-identity:"
+
+  points-service:
+    build:
+      context: ../../points-service
+      dockerfile: Dockerfile.local
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      auth-service:
+        condition: service_started
+    environment:
+      ENVIRONMENT: development
+      POINTS_ADDR: :8082
+      BUSINESS_DATABASE_URL: postgres://points:local-points-only@postgres:5432/points?sslmode=disable
+      IDENTITY_ISSUER: http://auth-service:8081
+      IDENTITY_AUDIENCE: platform-service
+      IDENTITY_ADDITIONAL_AUDIENCE: points-service
+      IDENTITY_JWKS_URL: http://auth-service:8081/.well-known/jwks.json
+      IDENTITY_REQUIRED_ENTITLEMENT: platform:access
+      POINTS_IDENTITY_SERVICE_BASE_URL: http://auth-service:8081
+      POINTS_IDENTITY_SERVICE_TOKEN: local-points-directory-token-32-chars
+      BUSINESS_TIMEZONE: UTC
+
+  points-web:
+    build:
+      context: ../../points-web
+      dockerfile: Dockerfile.local
+      args:
+        VITE_LOGIN_ORIGIN: http://127.0.0.1:18080
+        VITE_RETURN_TO_ORIGIN: http://127.0.0.1:18080
+
+  access-gateway:
+    build:
+      context: ..
+    depends_on:
+      auth-service:
+        condition: service_started
+      points-service:
+        condition: service_started
+      points-web:
+        condition: service_started
+    environment:
+      GATEWAY_ADDR: :8080
+      AUTH_SERVICE_URL: http://auth-service:8081
+      AUTH_SERVICE_TOKEN: local-gateway-shared-token-32-characters
+      SESSION_COOKIE_NAME: sg_local_session
+      ROUTES_FILE: /etc/access-gateway/routes.json
+    volumes:
+      - ./routes.json:/etc/access-gateway/routes.json:ro
+    ports:
+      - "127.0.0.1:18080:8080"
+
+volumes:
+  points-db:

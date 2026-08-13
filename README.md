@@ -127,6 +127,50 @@ make test
 make build
 ```
 
+## Local Points identity acceptance
+
+The repository owns a local-only, no-secret integration stack for the Points
+workbench. It builds the sibling Auth, Points Service, and Points Web
+repositories and runs them behind the real Access Gateway at one browser
+origin:
+
+```bash
+make local-e2e
+```
+
+That command starts fresh PostgreSQL and Redis containers, applies the Points
+migrations to the new local volume, seeds identity state through the Auth
+fixture, exercises the real browser session/JWT/membership boundaries, and
+then removes the temporary containers, network, and database volume. It checks
+anonymous login redirects, session and logout, platform role refresh,
+application isolation, 401/403/404 behavior, durable IAM idempotency,
+reconciliation, and controlled retry.
+
+For manual browser acceptance:
+
+```bash
+make local-up
+# open http://127.0.0.1:18080/
+make local-smoke
+make local-down
+```
+
+The isolated Redis and PostgreSQL integration suites can be repeated with:
+
+```bash
+make local-persistence-test
+```
+
+The helper creates uniquely named containers and a network and removes them on
+success, failure, or interruption. It never connects to a host or shared
+database.
+
+The checked-in values in `local/compose.yaml` are conspicuous fixture values,
+accepted only when Auth runs with `LOCAL_IDENTITY_FIXTURE=1` in development.
+The fixture is rejected in production and never calls ZITADEL. It models the
+real cookie, return-to, audience, Gateway authorization, Auth-signed identity,
+and Points membership contracts; it is not a production identity provider.
+
 Every push to `main` publishes multi-architecture images to GHCR. `latest` is
 only a discovery tag; staging and production deployment records must pin
 `ghcr.io/shiguang-lab/access-gateway@sha256:<digest>`. Immutable `sha-*` tags

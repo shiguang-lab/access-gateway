@@ -1,0 +1,128 @@
+{
+  "routes": [
+    {
+      "host": "127.0.0.1",
+      "path_prefix": "/api/auth/local/login",
+      "exact_path": true,
+      "product_id": "auth-local",
+      "audience": "auth-service",
+      "upstream": "http://auth-service:8081",
+      "allowed_methods": ["POST"],
+      "public_paths": ["/api/auth/local/login"],
+      "forward_gateway_token": true,
+      "forward_session_cookie": true
+    },
+    {
+      "host": "127.0.0.1",
+      "path_prefix": "/api/auth/local/",
+      "product_id": "points",
+      "audience": "auth-service",
+      "upstream": "http://auth-service:8081",
+      "allowed_methods": ["GET", "POST"],
+      "required_entitlements": ["platform:access"],
+      "forward_gateway_token": true,
+      "forward_session_cookie": true
+    },
+    {
+      "host": "127.0.0.1",
+      "path_prefix": "/api/auth/iam/points-role-assignments/",
+      "product_id": "points",
+      "audience": "auth-service",
+      "upstream": "http://auth-service:8081",
+      "allowed_methods": ["POST", "PUT"],
+      "required_entitlements": ["platform:access"],
+      "forward_gateway_token": true,
+      "forward_session_cookie": true
+    },
+    {
+      "host": "127.0.0.1",
+      "path_prefix": "/api/auth/session",
+      "exact_path": true,
+      "product_id": "points",
+      "audience": "auth-service",
+      "upstream": "http://auth-service:8081",
+      "allowed_methods": ["GET"],
+      "required_entitlements": ["platform:access"],
+      "forward_gateway_token": true,
+      "forward_session_cookie": true
+    },
+    {
+      "host": "127.0.0.1",
+      "path_prefix": "/api/auth/logout",
+      "exact_path": true,
+      "product_id": "points",
+      "audience": "auth-service",
+      "upstream": "http://auth-service:8081",
+      "allowed_methods": ["POST"],
+      "required_entitlements": ["platform:access"],
+      "forward_gateway_token": true,
+      "forward_session_cookie": true
+    },
+    {
+      "host": "127.0.0.1",
+      "path_prefix": "/api/v1/integration/token",
+      "exact_path": true,
+      "product_id": "points",
+      "audience": "points-web",
+      "upstream": "http://points-web:3000",
+      "allowed_methods": ["OPTIONS"]
+    },
+    {
+      "host": "127.0.0.1",
+      "path_prefix": "/api/v1/points/",
+      "product_id": "points",
+      "audience": "points-web",
+      "upstream": "http://points-web:3000",
+      "allowed_methods": ["OPTIONS"]
+    },
+    {
+      "host": "127.0.0.1",
+      "path_prefix": "/api/v1/me/",
+      "strip_prefix": "/api",
+      "product_id": "points",
+      "audience": "points-service",
+      "upstream": "http://points-service:8082",
+      "required_entitlements": ["platform:access"]
+    },
+    {
+      "host": "127.0.0.1",
+      "path_prefix": "/api/v1/admin/points/",
+      "strip_prefix": "/api",
+      "product_id": "points",
+      "audience": "points-service",
+      "upstream": "http://points-service:8082",
+      "required_entitlements": ["platform:access"]
+    },
+    {
+      "host": "127.0.0.1",
+      "path_prefix": "/api/v1/integration-admin/points/",
+      "strip_prefix": "/api",
+      "product_id": "points",
+      "audience": "points-service",
+      "upstream": "http://points-service:8082",
+      "required_entitlements": ["platform:access"]
+    },
+    {
+      "host": "127.0.0.1",
+      "path_prefix": "/login",
+      "exact_path": true,
+      "product_id": "auth-local",
+      "audience": "auth-service",
+      "upstream": "http://auth-service:8081",
+      "allowed_methods": ["GET"],
+      "public_paths": ["/login"],
+      "forward_gateway_token": true,
+      "forward_session_cookie": true
+    },
+    {
+      "host": "127.0.0.1",
+      "path_prefix": "/",
+      "product_id": "points",
+      "audience": "points-web",
+      "upstream": "http://points-web:3000",
+      "public_prefixes": ["/assets/"],
+      "public_paths": ["/health"],
+      "required_entitlements": ["platform:access"]
+    }
+  ]
+}
