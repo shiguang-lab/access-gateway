@@ -1,0 +1,84 @@
+map $http_upgrade $sg_origin_connection_upgrade {
+    default upgrade;
+    "" close;
+}
+
+server {
+    listen 80;
+    server_name point.shiguanglab.com;
+    return 308 https://point.shiguanglab.com$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name point.shiguanglab.com;
+
+    ssl_certificate /etc/letsencrypt/live/point.shiguanglab.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/point.shiguanglab.com/privkey.pem;
+    client_max_body_size 2m;
+
+    location = /__origin_health { return 404; }
+    location = /health/live { return 404; }
+    location = /health/ready { return 404; }
+
+    location / {
+        proxy_pass http://10.77.0.2:19443;
+        proxy_http_version 1.1;
+        proxy_connect_timeout 3s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 120s;
+        proxy_buffering off;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-Port 443;
+        proxy_set_header X-Request-ID $request_id;
+        proxy_set_header X-SG-Identity "";
+        proxy_set_header X-SG-Identity-Timestamp "";
+        proxy_set_header X-SG-Identity-Signature "";
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $sg_origin_connection_upgrade;
+    }
+}
+
+server {
+    listen 80;
+    server_name skills.shiguanglab.com;
+    return 308 https://skills.shiguanglab.com$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name skills.shiguanglab.com;
+
+    ssl_certificate /etc/letsencrypt/live/skills.shiguanglab.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/skills.shiguanglab.com/privkey.pem;
+    client_max_body_size 64m;
+
+    location = /__origin_health { return 404; }
+    location = /health/live { return 404; }
+    location = /health/ready { return 404; }
+
+    location / {
+        proxy_pass http://10.77.0.2:19443;
+        proxy_http_version 1.1;
+        proxy_connect_timeout 3s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 300s;
+        proxy_buffering off;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-Port 443;
+        proxy_set_header X-Request-ID $request_id;
+        proxy_set_header X-SG-Identity "";
+        proxy_set_header X-SG-Identity-Timestamp "";
+        proxy_set_header X-SG-Identity-Signature "";
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $sg_origin_connection_upgrade;
+    }
+}

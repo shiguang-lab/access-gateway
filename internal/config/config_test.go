@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -85,6 +86,35 @@ func TestShanghaiRoutesValidateAndKeepMachineAPIsClosed(t *testing.T) {
 		if !found {
 			t.Fatalf("Shanghai routes missing %q", route)
 		}
+	}
+}
+
+func TestShanghaiNginxTemplatesBlockPublicHealth(t *testing.T) {
+	root := filepath.Join("..", "..", "deploy", "shanghai", "nginx")
+	for _, name := range []string{"shanghai-origin-wireguard.conf.example", "japan-ingress.conf.example"} {
+		body, err := os.ReadFile(filepath.Join(root, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(body)
+		for _, host := range []string{"point.shiguanglab.com", "skills.shiguanglab.com"} {
+			if !strings.Contains(text, "server_name "+host+";") {
+				t.Fatalf("%s missing host %s", name, host)
+			}
+		}
+		for _, location := range []string{"location = /health/live { return 404; }", "location = /health/ready { return 404; }"} {
+			if strings.Count(text, location) != 2 {
+				t.Fatalf("%s must block %q in both product vhosts", name, location)
+			}
+		}
+	}
+
+	japanBody, err := os.ReadFile(filepath.Join(root, "japan-ingress.conf.example"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(japanBody), "location = /__origin_health { return 404; }") != 2 {
+		t.Fatal("Japan ingress must block the private origin health path in both public vhosts")
 	}
 }
 

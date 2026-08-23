@@ -68,6 +68,21 @@ The Shanghai Nginx vhost must block `/health/live`, `/health/ready`, and
 `X-Forwarded-For`, `X-Forwarded-Proto`, `X-Forwarded-Port`, and all `X-SG-*`
 identity headers before forwarding to the loopback Gateway.
 
+Executable Nginx templates live in [`nginx/`](nginx/):
+
+- `shanghai-origin-wireguard.conf.example` binds only `10.77.0.2:19443`,
+  allows only the Japan peer `10.77.0.1`, and forwards both product hosts to
+  the loopback Gateway.
+- `japan-ingress.conf.example` terminates public TLS, overwrites forwarding and
+  identity headers, blocks all health paths publicly, and connects directly to
+  `10.77.0.2:19443` without resolving the public product domains.
+
+Before installation, verify certificate paths and that `10.77.0.0/30` and UDP
+`51820` do not conflict with either host, Docker, cloud security groups, or
+host firewall policy. Back up the active Nginx tree, copy each template to the
+server's native include directory, run the native `nginx -t`, and reload only
+after a successful check. Never overwrite an existing default vhost.
+
 ## Rollback
 
 Remove the Japan vhost from service first, then remove the Shanghai private
