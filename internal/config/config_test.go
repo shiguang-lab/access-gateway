@@ -22,11 +22,11 @@ func TestExampleRoutesValidate(t *testing.T) {
 		t.Fatalf("example routes are invalid: %v", err)
 	}
 	required := map[string]bool{
-		"shiguanglab.com\x00/api/auth/": false,
-		"point.shiguanglab.com\x00/api/v2/": false,
+		"shiguanglab.com\x00/api/auth/":            false,
+		"point.shiguanglab.com\x00/api/v2/":        false,
 		"skills.shiguanglab.com\x00/api/v1/skills": false,
-		"skills.shiguanglab.com\x00/api/v1/": false,
-		"skills.shiguanglab.com\x00/": false,
+		"skills.shiguanglab.com\x00/api/v1/":       false,
+		"skills.shiguanglab.com\x00/":              false,
 	}
 	for _, route := range cfg.Routes {
 		if route.Host == "points.shiguanglab.com" || route.Host == "lingguang.shiguanglab.com" {
