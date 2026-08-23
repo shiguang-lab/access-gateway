@@ -16,6 +16,12 @@ import (
 )
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "healthcheck" {
+		if err := runHealthcheck(); err != nil {
+			os.Exit(1)
+		}
+		return
+	}
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	cfg, err := config.Load()
 	if err != nil {
@@ -58,4 +64,21 @@ func main() {
 		logger.Error("graceful shutdown failed", "error", err)
 		os.Exit(1)
 	}
+}
+
+func runHealthcheck() error {
+	endpoint := os.Getenv("GATEWAY_HEALTHCHECK_URL")
+	if endpoint == "" {
+		endpoint = "http://127.0.0.1:8080/health/ready"
+	}
+	client := &http.Client{Timeout: 2 * time.Second}
+	response, err := client.Get(endpoint)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return errors.New("gateway readiness check failed")
+	}
+	return nil
 }

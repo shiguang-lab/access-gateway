@@ -14,6 +14,22 @@ env:
   IMAGE_NAME: ghcr.io/shiguang-lab/access-gateway
 
 jobs:
+  verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - run: go test ./... -count=1
+
+      - run: go vet ./...
+
   meta:
     runs-on: ubuntu-latest
     outputs:
@@ -30,7 +46,9 @@ jobs:
             type=sha,prefix=
 
   build:
-    needs: meta
+    needs:
+      - meta
+      - verify
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -43,7 +61,7 @@ jobs:
             arch: arm64
             runner: ubuntu-24.04-arm
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: docker/setup-buildx-action@v3
 

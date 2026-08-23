@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -12,6 +13,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,8 +28,18 @@ type Handler struct {
 	now                         func() time.Time
 	sessionCookieName           string
 	routes                      map[string][]*route
+	trustedProxyCIDRs           []*net.IPNet
 	logger                      *slog.Logger
 }
+
+type requestMetadata struct {
+	clientIP string
+	host     string
+	port     string
+	scheme   string
+}
+
+type requestMetadataKey struct{}
 
 type route struct {
 	config config.Route
@@ -48,6 +60,7 @@ func NewHandler(cfg config.Config, authorizer authz.Authorizer, logger *slog.Log
 		now:                         time.Now,
 		sessionCookieName:           cfg.SessionCookieName,
 		routes:                      make(map[string][]*route, len(cfg.Routes)),
+		trustedProxyCIDRs:           cfg.TrustedProxyCIDRs,
 		logger:                      logger,
 	}
 	for _, routeConfig := range cfg.Routes {
@@ -63,6 +76,7 @@ func NewHandler(cfg config.Config, authorizer authz.Authorizer, logger *slog.Log
 		}
 		proxy := &httputil.ReverseProxy{
 			Rewrite: func(request *httputil.ProxyRequest) {
+				metadata, _ := request.In.Context().Value(requestMetadataKey{}).(requestMetadata)
 				if routeConfig.StripPrefix != "" {
 					request.Out.URL.Path = strings.TrimPrefix(request.Out.URL.Path, routeConfig.StripPrefix)
 					if request.Out.URL.Path == "" {
@@ -72,7 +86,11 @@ func NewHandler(cfg config.Config, authorizer authz.Authorizer, logger *slog.Log
 				}
 				request.SetURL(target)
 				request.Out.Host = target.Host
-				request.SetXForwarded()
+				request.Out.Header.Set("X-Forwarded-For", metadata.clientIP)
+				request.Out.Header.Set("X-Forwarded-Host", metadata.host)
+				request.Out.Header.Set("X-Forwarded-Proto", metadata.scheme)
+				request.Out.Header.Set("X-Forwarded-Port", metadata.port)
+				request.Out.Header.Set("X-Real-IP", metadata.clientIP)
 			},
 			ModifyResponse: func(response *http.Response) error {
 				if !routeConfig.ForwardSessionCookie {
@@ -106,7 +124,9 @@ func (h *Handler) ServeHTTP(response http.ResponseWriter, request *http.Request)
 		return
 	}
 
-	host := normalizedHost(request.Host)
+	metadata := h.metadataFor(request)
+	request = request.WithContext(context.WithValue(request.Context(), requestMetadataKey{}, metadata))
+	host := metadata.host
 	matched, ok := h.matchRoute(host, request.URL.Path)
 	if !ok {
 		http.Error(response, http.StatusText(http.StatusMisdirectedRequest), http.StatusMisdirectedRequest)
@@ -129,10 +149,10 @@ func (h *Handler) ServeHTTP(response http.ResponseWriter, request *http.Request)
 		decision, err = h.authorizer.Authorize(request.Context(), authz.DecisionRequest{
 			RequestID:            requestID,
 			Method:               request.Method,
-			Scheme:               requestScheme(request),
+			Scheme:               metadata.scheme,
 			Host:                 host,
 			Path:                 request.URL.RequestURI(),
-			ClientIP:             clientIP(request.RemoteAddr),
+			ClientIP:             metadata.clientIP,
 			Cookie:               request.Header.Get("Cookie"),
 			Authorization:        request.Header.Get("Authorization"),
 			Origin:               request.Header.Get("Origin"),
@@ -269,11 +289,66 @@ func normalizedHost(hostport string) string {
 	return strings.ToLower(strings.TrimSuffix(host, "."))
 }
 
-func requestScheme(request *http.Request) string {
-	if request.TLS != nil {
-		return "https"
+func (h *Handler) metadataFor(request *http.Request) requestMetadata {
+	directIP := clientIP(request.RemoteAddr)
+	metadata := requestMetadata{
+		clientIP: directIP,
+		host:     normalizedHost(request.Host),
+		port:     "80",
+		scheme:   "http",
 	}
-	return "http"
+	if request.TLS != nil {
+		metadata.port = "443"
+		metadata.scheme = "https"
+	}
+	if !h.isTrustedProxy(directIP) {
+		return metadata
+	}
+
+	if scheme := firstHeaderValue(request.Header.Get("X-Forwarded-Proto")); scheme == "http" || scheme == "https" {
+		metadata.scheme = scheme
+		metadata.port = map[string]string{"http": "80", "https": "443"}[scheme]
+	}
+	if port := firstHeaderValue(request.Header.Get("X-Forwarded-Port")); validPort(port) {
+		metadata.port = port
+	}
+	if forwardedIP := firstForwardedIP(request.Header.Get("X-Forwarded-For")); forwardedIP != "" {
+		metadata.clientIP = forwardedIP
+	} else if realIP := net.ParseIP(strings.TrimSpace(request.Header.Get("X-Real-IP"))); realIP != nil {
+		metadata.clientIP = realIP.String()
+	}
+	return metadata
+}
+
+func (h *Handler) isTrustedProxy(address string) bool {
+	ip := net.ParseIP(address)
+	if ip == nil {
+		return false
+	}
+	for _, network := range h.trustedProxyCIDRs {
+		if network.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+func firstHeaderValue(value string) string {
+	first, _, _ := strings.Cut(value, ",")
+	return strings.ToLower(strings.TrimSpace(first))
+}
+
+func firstForwardedIP(value string) string {
+	first, _, _ := strings.Cut(value, ",")
+	if ip := net.ParseIP(strings.TrimSpace(first)); ip != nil {
+		return ip.String()
+	}
+	return ""
+}
+
+func validPort(value string) bool {
+	port, err := strconv.Atoi(value)
+	return err == nil && port > 0 && port <= 65535
 }
 
 func clientIP(remoteAddr string) string {

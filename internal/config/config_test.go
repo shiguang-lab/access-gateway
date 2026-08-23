@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -40,6 +41,49 @@ func TestExampleRoutesValidate(t *testing.T) {
 	for route, found := range required {
 		if !found {
 			t.Fatalf("example routes missing deployed route %q", route)
+		}
+	}
+}
+
+func TestShanghaiRoutesValidateAndKeepMachineAPIsClosed(t *testing.T) {
+	routes, err := filepath.Abs(filepath.Join("..", "..", "deploy", "shanghai", "routes.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AUTH_SERVICE_URL", "http://127.0.0.1:19481")
+	t.Setenv("AUTH_SERVICE_TOKEN", "gateway-secret")
+	t.Setenv("AUTH_SERVICE_TOKEN_FILE", "")
+	t.Setenv("IDENTITY_HEADER_SIGNING_SECRET", "")
+	t.Setenv("ROUTES_FILE", routes)
+	t.Setenv("TRUSTED_PROXY_CIDRS", "127.0.0.0/8,::1/128")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Shanghai routes are invalid: %v", err)
+	}
+	required := map[string]bool{
+		"point.shiguanglab.com\x00/api/v2/tenant/points/": false,
+		"point.shiguanglab.com\x00/api/v2/admin/points/":  false,
+		"skills.shiguanglab.com\x00/api/v1/":              false,
+	}
+	for _, route := range cfg.Routes {
+		if route.Host != "point.shiguanglab.com" && route.Host != "skills.shiguanglab.com" {
+			t.Fatalf("unexpected Shanghai host %q", route.Host)
+		}
+		if route.Host == "point.shiguanglab.com" {
+			switch route.PathPrefix {
+			case "/api/v1/", "/api/platform/v1/", "/api/v2/":
+				t.Fatalf("broad Points browser API route exposes future machine endpoints: %q", route.PathPrefix)
+			}
+		}
+		key := route.Host + "\x00" + route.PathPrefix
+		if _, ok := required[key]; ok {
+			required[key] = true
+		}
+	}
+	for route, found := range required {
+		if !found {
+			t.Fatalf("Shanghai routes missing %q", route)
 		}
 	}
 }
@@ -185,5 +229,71 @@ func TestValidatePublicPaths(t *testing.T) {
 	base.Routes[0].PublicPaths = []string{"app"}
 	if err := base.Validate(); err == nil {
 		t.Fatal("relative public path was accepted")
+	}
+}
+
+func TestLoadReadsAuthServiceTokenFromFile(t *testing.T) {
+	routes, err := filepath.Abs(filepath.Join("..", "..", "config", "routes.example.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tokenFile := filepath.Join(t.TempDir(), "gateway-token")
+	if err := os.WriteFile(tokenFile, []byte("file-gateway-secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AUTH_SERVICE_URL", "http://auth-service:8081")
+	t.Setenv("AUTH_SERVICE_TOKEN", "")
+	t.Setenv("AUTH_SERVICE_TOKEN_FILE", tokenFile)
+	t.Setenv("IDENTITY_HEADER_SIGNING_SECRET", testIdentityHeaderSigningSecret)
+	t.Setenv("ROUTES_FILE", routes)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.AuthServiceToken != "file-gateway-secret" {
+		t.Fatalf("auth service token = %q", cfg.AuthServiceToken)
+	}
+}
+
+func TestLoadRejectsAmbiguousAuthServiceToken(t *testing.T) {
+	tokenFile := filepath.Join(t.TempDir(), "gateway-token")
+	if err := os.WriteFile(tokenFile, []byte("file-gateway-secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AUTH_SERVICE_TOKEN", "environment-secret")
+	t.Setenv("AUTH_SERVICE_TOKEN_FILE", tokenFile)
+
+	if _, err := Load(); err == nil {
+		t.Fatal("expected ambiguous auth service token configuration to fail")
+	}
+}
+
+func TestLoadParsesTrustedProxyCIDRs(t *testing.T) {
+	routes, err := filepath.Abs(filepath.Join("..", "..", "config", "routes.example.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AUTH_SERVICE_URL", "http://auth-service:8081")
+	t.Setenv("AUTH_SERVICE_TOKEN", "gateway-secret")
+	t.Setenv("AUTH_SERVICE_TOKEN_FILE", "")
+	t.Setenv("IDENTITY_HEADER_SIGNING_SECRET", testIdentityHeaderSigningSecret)
+	t.Setenv("ROUTES_FILE", routes)
+	t.Setenv("TRUSTED_PROXY_CIDRS", "127.0.0.0/8, ::1/128")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.TrustedProxyCIDRs) != 2 {
+		t.Fatalf("trusted proxy CIDRs = %d", len(cfg.TrustedProxyCIDRs))
+	}
+}
+
+func TestLoadRejectsInvalidTrustedProxyCIDR(t *testing.T) {
+	t.Setenv("AUTH_SERVICE_TOKEN", "gateway-secret")
+	t.Setenv("TRUSTED_PROXY_CIDRS", "not-a-cidr")
+	if _, err := Load(); err == nil {
+		t.Fatal("expected invalid trusted proxy CIDR to fail")
 	}
 }

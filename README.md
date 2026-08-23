@@ -34,7 +34,7 @@ OpenTelemetry integration.
 ## Configuration
 
 ```bash
-export AUTH_SERVICE_TOKEN="$(openssl rand -hex 32)"
+export AUTH_SERVICE_TOKEN_FILE="/run/secrets/auth_service_token"
 export AUTH_SERVICE_URL="http://127.0.0.1:8081"
 export IDENTITY_HEADER_SIGNING_SECRET_FILE="/run/secrets/huiguang_identity_header_secret"
 export ROUTES_FILE="$PWD/config/routes.example.json"
@@ -44,6 +44,15 @@ go run ./cmd/access-gateway
 The service refuses to start without an auth URL, shared service token, and at
 least one valid route. The service does not implicitly load `.env`; deployment
 configuration must be injected by the process supervisor or container runtime.
+Set either `AUTH_SERVICE_TOKEN` for local development or
+`AUTH_SERVICE_TOKEN_FILE` for deployed environments, never both. The file form
+is required by the Shanghai production candidate.
+
+When TLS terminates at a loopback reverse proxy, set
+`TRUSTED_PROXY_CIDRS=127.0.0.0/8,::1/128`. Forwarded scheme, port, and client IP
+are honored only when the direct peer belongs to one of those networks;
+untrusted browser-provided forwarding headers are discarded. The ingress must
+overwrite forwarding headers instead of appending arbitrary client values.
 
 Access Gateway uses the canonical internal decision protocol
 `POST /v1/authorize` with a bounded JSON request. The shared credential is sent
@@ -126,6 +135,16 @@ web container. The signing secret must contain at least 32 characters.
 make test
 make build
 ```
+
+## Shanghai production candidate
+
+The isolated candidate for `point.shiguanglab.com` and
+`skills.shiguanglab.com` is documented in
+[`deploy/shanghai/README.md`](deploy/shanghai/README.md). It binds the Gateway
+only to `127.0.0.1:19480`, requires a digest-pinned image and a read-only Auth
+credential file, and keeps product services in their independent repositories
+and Compose projects. The official Website, Portal, and Auth Service are not
+deployed by this stack.
 
 ## Local Points identity acceptance
 

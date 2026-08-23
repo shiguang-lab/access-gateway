@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"strings"
@@ -17,6 +18,7 @@ type Config struct {
 	IdentityHeaderSigningSecret string
 	SessionCookieName           string
 	AuthTimeout                 time.Duration
+	TrustedProxyCIDRs           []*net.IPNet
 	Routes                      []Route
 }
 
@@ -43,17 +45,26 @@ type routeFile struct {
 }
 
 func Load() (Config, error) {
+	authServiceToken, err := readSecret("AUTH_SERVICE_TOKEN", "AUTH_SERVICE_TOKEN_FILE")
+	if err != nil {
+		return Config{}, err
+	}
 	identityHeaderSigningSecret, err := readSecret("IDENTITY_HEADER_SIGNING_SECRET", "IDENTITY_HEADER_SIGNING_SECRET_FILE")
+	if err != nil {
+		return Config{}, err
+	}
+	trustedProxyCIDRs, err := parseCIDRs(os.Getenv("TRUSTED_PROXY_CIDRS"))
 	if err != nil {
 		return Config{}, err
 	}
 	cfg := Config{
 		Addr:                        envOr("GATEWAY_ADDR", ":8080"),
 		AuthServiceURL:              strings.TrimSpace(os.Getenv("AUTH_SERVICE_URL")),
-		AuthServiceToken:            strings.TrimSpace(os.Getenv("AUTH_SERVICE_TOKEN")),
+		AuthServiceToken:            authServiceToken,
 		IdentityHeaderSigningSecret: identityHeaderSigningSecret,
 		SessionCookieName:           envOr("SESSION_COOKIE_NAME", "__Secure-sg_session"),
 		AuthTimeout:                 3 * time.Second,
+		TrustedProxyCIDRs:           trustedProxyCIDRs,
 	}
 
 	routesPath := strings.TrimSpace(os.Getenv("ROUTES_FILE"))
@@ -158,14 +169,35 @@ func (c Config) Validate() error {
 }
 
 func readSecret(valueName, fileName string) (string, error) {
-	if path := strings.TrimSpace(os.Getenv(fileName)); path != "" {
+	value := strings.TrimSpace(os.Getenv(valueName))
+	path := strings.TrimSpace(os.Getenv(fileName))
+	if value != "" && path != "" {
+		return "", fmt.Errorf("%s and %s must not both be set", valueName, fileName)
+	}
+	if path != "" {
 		body, err := os.ReadFile(path)
 		if err != nil {
 			return "", fmt.Errorf("read %s: %w", fileName, err)
 		}
 		return strings.TrimSpace(string(body)), nil
 	}
-	return strings.TrimSpace(os.Getenv(valueName)), nil
+	return value, nil
+}
+
+func parseCIDRs(raw string) ([]*net.IPNet, error) {
+	var networks []*net.IPNet
+	for _, candidate := range strings.Split(raw, ",") {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		_, network, err := net.ParseCIDR(candidate)
+		if err != nil {
+			return nil, fmt.Errorf("invalid TRUSTED_PROXY_CIDRS entry %q: %w", candidate, err)
+		}
+		networks = append(networks, network)
+	}
+	return networks, nil
 }
 
 func pathPrefixMatch(path, prefix string) bool {

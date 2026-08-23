@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -572,5 +573,89 @@ func TestPointsBrowserRoutesCannotReachMachineAPI(t *testing.T) {
 	}
 	if pointsCalls != 0 {
 		t.Fatalf("machine requests reached points upstream %d times", pointsCalls)
+	}
+}
+
+func TestTrustedProxyMetadataReachesAuthAndUpstream(t *testing.T) {
+	_, loopback, err := net.ParseCIDR("127.0.0.0/8")
+	if err != nil {
+		t.Fatal(err)
+	}
+	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if got := request.Header.Get("X-Forwarded-For"); got != "203.0.113.24" {
+			t.Errorf("forwarded for = %q", got)
+		}
+		if got := request.Header.Get("X-Forwarded-Proto"); got != "https" {
+			t.Errorf("forwarded proto = %q", got)
+		}
+		if got := request.Header.Get("X-Forwarded-Port"); got != "443" {
+			t.Errorf("forwarded port = %q", got)
+		}
+		if got := request.Header.Get("X-Forwarded-Host"); got != "point.shiguanglab.com" {
+			t.Errorf("forwarded host = %q", got)
+		}
+		response.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+
+	authorizer := &fakeAuthorizer{decision: authz.DecisionResponse{Allow: true, Status: http.StatusOK}}
+	handler, err := NewHandler(config.Config{
+		SessionCookieName: "__Secure-sg_session",
+		TrustedProxyCIDRs: []*net.IPNet{loopback},
+		Routes: []config.Route{{
+			Host: "point.shiguanglab.com", PathPrefix: "/", ProductID: "points-ui", Audience: "points-ui", Upstream: upstream.URL,
+		}},
+	}, authorizer, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "http://point.shiguanglab.com/app", nil)
+	request.RemoteAddr = "127.0.0.1:51000"
+	request.Header.Set("X-Forwarded-For", "203.0.113.24")
+	request.Header.Set("X-Forwarded-Proto", "https")
+	request.Header.Set("X-Forwarded-Port", "443")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status = %d", response.Code)
+	}
+	if authorizer.request.ClientIP != "203.0.113.24" || authorizer.request.Scheme != "https" {
+		t.Fatalf("auth metadata = %#v", authorizer.request)
+	}
+}
+
+func TestUntrustedProxyHeadersAreIgnored(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if got := request.Header.Get("X-Forwarded-For"); got != "192.0.2.45" {
+			t.Errorf("forwarded for = %q", got)
+		}
+		if got := request.Header.Get("X-Forwarded-Proto"); got != "http" {
+			t.Errorf("forwarded proto = %q", got)
+		}
+		response.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+
+	authorizer := &fakeAuthorizer{decision: authz.DecisionResponse{Allow: true, Status: http.StatusOK}}
+	handler, err := NewHandler(config.Config{
+		SessionCookieName: "__Secure-sg_session",
+		Routes: []config.Route{{Host: "point.shiguanglab.com", PathPrefix: "/", ProductID: "points-ui", Audience: "points-ui", Upstream: upstream.URL}},
+	}, authorizer, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "http://point.shiguanglab.com/app", nil)
+	request.RemoteAddr = "192.0.2.45:51000"
+	request.Header.Set("X-Forwarded-For", "203.0.113.24")
+	request.Header.Set("X-Forwarded-Proto", "https")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status = %d", response.Code)
+	}
+	if authorizer.request.ClientIP != "192.0.2.45" || authorizer.request.Scheme != "http" {
+		t.Fatalf("auth metadata = %#v", authorizer.request)
 	}
 }
