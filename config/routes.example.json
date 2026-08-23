@@ -2,6 +2,20 @@
   "routes": [
     {
       "host": "shiguanglab.com",
+      "path_prefix": "/api/auth/",
+      "product_id": "portal-auth",
+      "audience": "auth-service",
+      "upstream": "http://auth-service:8081",
+      "public_prefixes": [
+        "/api/auth/"
+      ],
+      "required_entitlements": [],
+      "forward_authorization": false,
+      "forward_gateway_token": true,
+      "forward_session_cookie": true
+    },
+    {
+      "host": "shiguanglab.com",
       "path_prefix": "/_auth/login/",
       "product_id": "login",
       "audience": "auth-service",
@@ -13,7 +27,7 @@
       "forward_authorization": false
     },
     {
-      "host": "points.shiguanglab.com",
+      "host": "point.shiguanglab.com",
       "path_prefix": "/api/auth/session",
       "exact_path": true,
       "product_id": "points-auth",
@@ -31,7 +45,7 @@
       "forward_session_cookie": true
     },
     {
-      "host": "points.shiguanglab.com",
+      "host": "point.shiguanglab.com",
       "path_prefix": "/api/auth/logout",
       "exact_path": true,
       "product_id": "points-auth",
@@ -49,7 +63,7 @@
       "forward_session_cookie": true
     },
     {
-      "host": "points.shiguanglab.com",
+      "host": "point.shiguanglab.com",
       "path_prefix": "/api/auth/iam/points-role-assignments/",
       "product_id": "points-iam",
       "audience": "auth-service",
@@ -67,7 +81,7 @@
       "forward_session_cookie": true
     },
     {
-      "host": "points.shiguanglab.com",
+      "host": "point.shiguanglab.com",
       "path_prefix": "/api/v1/me/",
       "strip_prefix": "/api",
       "product_id": "points",
@@ -80,7 +94,7 @@
       "forward_authorization": false
     },
     {
-      "host": "points.shiguanglab.com",
+      "host": "point.shiguanglab.com",
       "path_prefix": "/api/v1/admin/points/",
       "strip_prefix": "/api",
       "product_id": "points",
@@ -93,7 +107,7 @@
       "forward_authorization": false
     },
     {
-      "host": "points.shiguanglab.com",
+      "host": "point.shiguanglab.com",
       "path_prefix": "/api/v1/integration-admin/points/",
       "strip_prefix": "/api",
       "product_id": "points",
@@ -106,7 +120,7 @@
       "forward_authorization": false
     },
     {
-      "host": "points.shiguanglab.com",
+      "host": "point.shiguanglab.com",
       "path_prefix": "/api/platform/v1/me/",
       "strip_prefix": "/api/platform",
       "product_id": "points",
@@ -119,7 +133,7 @@
       "forward_authorization": false
     },
     {
-      "host": "points.shiguanglab.com",
+      "host": "point.shiguanglab.com",
       "path_prefix": "/api/platform/v1/admin/points/",
       "strip_prefix": "/api/platform",
       "product_id": "points",
@@ -132,7 +146,7 @@
       "forward_authorization": false
     },
     {
-      "host": "points.shiguanglab.com",
+      "host": "point.shiguanglab.com",
       "path_prefix": "/api/platform/v1/integration-admin/points/",
       "strip_prefix": "/api/platform",
       "product_id": "points",
@@ -145,7 +159,20 @@
       "forward_authorization": false
     },
     {
-      "host": "points.shiguanglab.com",
+      "host": "point.shiguanglab.com",
+      "path_prefix": "/api/v2/",
+      "strip_prefix": "/api",
+      "product_id": "points",
+      "audience": "points-service",
+      "upstream": "http://points-service:8082",
+      "public_prefixes": [],
+      "required_entitlements": [
+        "platform:access"
+      ],
+      "forward_authorization": false
+    },
+    {
+      "host": "point.shiguanglab.com",
       "path_prefix": "/",
       "product_id": "points-ui",
       "audience": "points-ui",
@@ -157,6 +184,100 @@
       "required_entitlements": [
         "platform:access"
       ],
+      "forward_authorization": false
+    },
+    {
+      "host": "skills.shiguanglab.com",
+      "path_prefix": "/api/auth/session",
+      "exact_path": true,
+      "product_id": "lingguang-auth",
+      "audience": "auth-service",
+      "upstream": "http://auth-service:8081",
+      "allowed_methods": [
+        "GET"
+      ],
+      "public_prefixes": [
+        "/api/auth/session"
+      ],
+      "required_entitlements": [],
+      "forward_authorization": false,
+      "forward_gateway_token": true,
+      "forward_session_cookie": true
+    },
+    {
+      "host": "skills.shiguanglab.com",
+      "path_prefix": "/api/auth/logout",
+      "exact_path": true,
+      "product_id": "lingguang-auth",
+      "audience": "auth-service",
+      "upstream": "http://auth-service:8081",
+      "allowed_methods": [
+        "POST"
+      ],
+      "public_prefixes": [
+        "/api/auth/logout"
+      ],
+      "required_entitlements": [],
+      "forward_authorization": false,
+      "forward_gateway_token": true,
+      "forward_session_cookie": true
+    },
+    {
+      "host": "skills.shiguanglab.com",
+      "path_prefix": "/api/v1/marketplace/overview",
+      "exact_path": true,
+      "strip_prefix": "/api",
+      "product_id": "lingguang-catalog",
+      "audience": "lingguang-api",
+      "upstream": "http://lingguang-api:8083",
+      "allowed_methods": [
+        "GET"
+      ],
+      "public_prefixes": [
+        "/api/v1/marketplace/overview"
+      ],
+      "required_entitlements": [],
+      "forward_authorization": false
+    },
+    {
+      "host": "skills.shiguanglab.com",
+      "path_prefix": "/api/v1/skills",
+      "strip_prefix": "/api",
+      "product_id": "lingguang-catalog",
+      "audience": "lingguang-api",
+      "upstream": "http://lingguang-api:8083",
+      "allowed_methods": [
+        "GET"
+      ],
+      "public_prefixes": [
+        "/api/v1/skills"
+      ],
+      "required_entitlements": [],
+      "forward_authorization": false
+    },
+    {
+      "host": "skills.shiguanglab.com",
+      "path_prefix": "/api/v1/",
+      "strip_prefix": "/api",
+      "product_id": "lingguang",
+      "audience": "lingguang-api",
+      "upstream": "http://lingguang-api:8083",
+      "public_prefixes": [],
+      "required_entitlements": [
+        "platform:access"
+      ],
+      "forward_authorization": false
+    },
+    {
+      "host": "skills.shiguanglab.com",
+      "path_prefix": "/",
+      "product_id": "lingguang-ui",
+      "audience": "lingguang-ui",
+      "upstream": "http://lingguang-web:3000",
+      "public_prefixes": [
+        "/"
+      ],
+      "required_entitlements": [],
       "forward_authorization": false
     },
     {

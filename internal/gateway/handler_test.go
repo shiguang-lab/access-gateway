@@ -335,7 +335,7 @@ func TestCompatibilityPlatformRouteStaysProtected(t *testing.T) {
 		SessionCookieName: "__Secure-sg_session",
 		Routes: []config.Route{
 			{
-				Host:                 "points.shiguanglab.com",
+				Host:                 "point.shiguanglab.com",
 				PathPrefix:           "/api/platform/",
 				StripPrefix:          "/api/platform",
 				ProductID:            "points",
@@ -344,7 +344,7 @@ func TestCompatibilityPlatformRouteStaysProtected(t *testing.T) {
 				RequiredEntitlements: []string{"platform:access"},
 			},
 			{
-				Host:           "points.shiguanglab.com",
+				Host:           "point.shiguanglab.com",
 				PathPrefix:     "/",
 				ProductID:      "points-ui",
 				Audience:       "points-ui",
@@ -358,7 +358,7 @@ func TestCompatibilityPlatformRouteStaysProtected(t *testing.T) {
 	}
 
 	recorder := httptest.NewRecorder()
-	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "https://points.shiguanglab.com/api/platform/v1/me/points", nil))
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "https://point.shiguanglab.com/api/platform/v1/me/points", nil))
 	if recorder.Code != http.StatusNoContent {
 		t.Fatalf("status = %d", recorder.Code)
 	}
@@ -391,7 +391,7 @@ func TestDedicatedPointsRouteStaysProtected(t *testing.T) {
 		SessionCookieName: "__Secure-sg_session",
 		Routes: []config.Route{
 			{
-				Host:                 "points.shiguanglab.com",
+				Host:                 "point.shiguanglab.com",
 				PathPrefix:           "/api/v1/me/",
 				StripPrefix:          "/api",
 				ProductID:            "points",
@@ -414,7 +414,7 @@ func TestDedicatedPointsRouteStaysProtected(t *testing.T) {
 	}
 
 	recorder := httptest.NewRecorder()
-	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "https://points.shiguanglab.com/api/v1/me/points", nil))
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "https://point.shiguanglab.com/api/v1/me/points", nil))
 	if recorder.Code != http.StatusNoContent {
 		t.Fatalf("status = %d", recorder.Code)
 	}
@@ -455,8 +455,8 @@ func TestPointsAuthSessionUsesExactAuthRouteAndGatewayCredential(t *testing.T) {
 		AuthServiceToken:  "gateway-secret",
 		SessionCookieName: "__Secure-sg_session",
 		Routes: []config.Route{
-			{Host: "points.shiguanglab.com", PathPrefix: "/api/auth/session", ExactPath: true, ProductID: "points-auth", Audience: "auth-service", Upstream: authUpstream.URL, AllowedMethods: []string{http.MethodGet}, PublicPrefixes: []string{"/api/auth/session"}, ForwardGatewayToken: true, ForwardSessionCookie: true},
-			{Host: "points.shiguanglab.com", PathPrefix: "/", ProductID: "points-ui", Audience: "points-ui", Upstream: uiUpstream.URL, PublicPrefixes: []string{"/"}},
+			{Host: "point.shiguanglab.com", PathPrefix: "/api/auth/session", ExactPath: true, ProductID: "points-auth", Audience: "auth-service", Upstream: authUpstream.URL, AllowedMethods: []string{http.MethodGet}, PublicPrefixes: []string{"/api/auth/session"}, ForwardGatewayToken: true, ForwardSessionCookie: true},
+			{Host: "point.shiguanglab.com", PathPrefix: "/", ProductID: "points-ui", Audience: "points-ui", Upstream: uiUpstream.URL, PublicPrefixes: []string{"/"}},
 		},
 	}, &fakeAuthorizer{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
@@ -464,7 +464,7 @@ func TestPointsAuthSessionUsesExactAuthRouteAndGatewayCredential(t *testing.T) {
 	}
 
 	response := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "https://points.shiguanglab.com/api/auth/session", nil)
+	request := httptest.NewRequest(http.MethodGet, "https://point.shiguanglab.com/api/auth/session", nil)
 	request.AddCookie(&http.Cookie{Name: "__Secure-sg_session", Value: "session-1"})
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusOK || uiCalls != 0 {
@@ -475,7 +475,7 @@ func TestPointsAuthSessionUsesExactAuthRouteAndGatewayCredential(t *testing.T) {
 	}
 
 	response = httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "https://points.shiguanglab.com/api/auth/session", nil))
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "https://point.shiguanglab.com/api/auth/session", nil))
 	if response.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("wrong-method status = %d", response.Code)
 	}
@@ -495,7 +495,7 @@ func TestPointsIAMRoleManagementUsesProtectedAuthRoute(t *testing.T) {
 		if authorization := request.Header.Get("Authorization"); authorization != "" {
 			t.Errorf("browser authorization reached Auth Service: %q", authorization)
 		}
-		if origin := request.Header.Get("Origin"); origin != "https://points.shiguanglab.com" {
+		if origin := request.Header.Get("Origin"); origin != "https://point.shiguanglab.com" {
 			t.Errorf("browser origin was not preserved: %q", origin)
 		}
 		response.WriteHeader(http.StatusOK)
@@ -508,7 +508,7 @@ func TestPointsIAMRoleManagementUsesProtectedAuthRoute(t *testing.T) {
 		SessionCookieName: "__Secure-sg_session",
 		Routes: []config.Route{
 			{
-				Host: "points.shiguanglab.com", PathPrefix: "/api/auth/iam/points-role-assignments/",
+				Host: "point.shiguanglab.com", PathPrefix: "/api/auth/iam/points-role-assignments/",
 				ProductID: "points-iam", Audience: "auth-service", Upstream: authUpstream.URL,
 				AllowedMethods: []string{http.MethodPost, http.MethodPut}, RequiredEntitlements: []string{"platform:access"},
 				ForwardGatewayToken: true, ForwardSessionCookie: true,
@@ -519,10 +519,10 @@ func TestPointsIAMRoleManagementUsesProtectedAuthRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	request := httptest.NewRequest(http.MethodPost, "https://points.shiguanglab.com/api/auth/iam/points-role-assignments/search", strings.NewReader(`{"query":"alice","limit":10}`))
+	request := httptest.NewRequest(http.MethodPost, "https://point.shiguanglab.com/api/auth/iam/points-role-assignments/search", strings.NewReader(`{"query":"alice","limit":10}`))
 	request.AddCookie(&http.Cookie{Name: "__Secure-sg_session", Value: "session-1"})
 	request.Header.Set("Authorization", "Bearer forged-browser-token")
-	request.Header.Set("Origin", "https://points.shiguanglab.com")
+	request.Header.Set("Origin", "https://point.shiguanglab.com")
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
@@ -554,9 +554,9 @@ func TestPointsBrowserRoutesCannotReachMachineAPI(t *testing.T) {
 	handler, err := NewHandler(config.Config{
 		SessionCookieName: "__Secure-sg_session",
 		Routes: []config.Route{
-			{Host: "points.shiguanglab.com", PathPrefix: "/api/v1/me/", StripPrefix: "/api", ProductID: "points", Audience: "points-service", Upstream: pointsUpstream.URL},
-			{Host: "points.shiguanglab.com", PathPrefix: "/api/v1/admin/points/", StripPrefix: "/api", ProductID: "points", Audience: "points-service", Upstream: pointsUpstream.URL},
-			{Host: "points.shiguanglab.com", PathPrefix: "/", ProductID: "points-ui", Audience: "points-ui", Upstream: uiUpstream.URL, PublicPrefixes: []string{"/"}},
+			{Host: "point.shiguanglab.com", PathPrefix: "/api/v1/me/", StripPrefix: "/api", ProductID: "points", Audience: "points-service", Upstream: pointsUpstream.URL},
+			{Host: "point.shiguanglab.com", PathPrefix: "/api/v1/admin/points/", StripPrefix: "/api", ProductID: "points", Audience: "points-service", Upstream: pointsUpstream.URL},
+			{Host: "point.shiguanglab.com", PathPrefix: "/", ProductID: "points-ui", Audience: "points-ui", Upstream: uiUpstream.URL, PublicPrefixes: []string{"/"}},
 		},
 	}, &fakeAuthorizer{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
@@ -565,7 +565,7 @@ func TestPointsBrowserRoutesCannotReachMachineAPI(t *testing.T) {
 
 	for _, path := range []string{"/api/v1/integration/token", "/api/v1/points/reservations"} {
 		response := httptest.NewRecorder()
-		handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "https://points.shiguanglab.com"+path, nil))
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "https://point.shiguanglab.com"+path, nil))
 		if response.Code != http.StatusNotFound {
 			t.Fatalf("%s status = %d", path, response.Code)
 		}

@@ -17,8 +17,30 @@ func TestExampleRoutesValidate(t *testing.T) {
 	t.Setenv("IDENTITY_HEADER_SIGNING_SECRET_FILE", "")
 	t.Setenv("IDENTITY_HEADER_SIGNING_SECRET", testIdentityHeaderSigningSecret)
 	t.Setenv("ROUTES_FILE", routes)
-	if _, err := Load(); err != nil {
+	cfg, err := Load()
+	if err != nil {
 		t.Fatalf("example routes are invalid: %v", err)
+	}
+	required := map[string]bool{
+		"shiguanglab.com\x00/api/auth/": false,
+		"point.shiguanglab.com\x00/api/v2/": false,
+		"skills.shiguanglab.com\x00/api/v1/skills": false,
+		"skills.shiguanglab.com\x00/api/v1/": false,
+		"skills.shiguanglab.com\x00/": false,
+	}
+	for _, route := range cfg.Routes {
+		if route.Host == "points.shiguanglab.com" || route.Host == "lingguang.shiguanglab.com" {
+			t.Fatalf("example routes retain retired host %q", route.Host)
+		}
+		key := route.Host + "\x00" + route.PathPrefix
+		if _, ok := required[key]; ok {
+			required[key] = true
+		}
+	}
+	for route, found := range required {
+		if !found {
+			t.Fatalf("example routes missing deployed route %q", route)
+		}
 	}
 }
 
@@ -84,7 +106,7 @@ func TestValidateRestrictsForwardedGatewayTokenToAuthService(t *testing.T) {
 		AuthServiceToken:  "secret",
 		SessionCookieName: "__Secure-sg_session",
 		Routes: []Route{{
-			Host:                "points.shiguanglab.com",
+			Host:                "point.shiguanglab.com",
 			PathPrefix:          "/api/v1/me/",
 			ProductID:           "points",
 			Audience:            "points-service",
@@ -103,7 +125,7 @@ func TestValidateRestrictsForwardedSessionCookieToAuthService(t *testing.T) {
 		AuthServiceToken:  "secret",
 		SessionCookieName: "__Secure-sg_session",
 		Routes: []Route{{
-			Host:                 "points.shiguanglab.com",
+			Host:                 "point.shiguanglab.com",
 			PathPrefix:           "/api/v1/me/",
 			ProductID:            "points",
 			Audience:             "points-service",
