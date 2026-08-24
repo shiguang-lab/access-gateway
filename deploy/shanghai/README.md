@@ -63,6 +63,9 @@ an HTTPS `return_to`. The unknown host must return `421`. Machine Points paths
 such as `/api/v1/integration/token` and `/api/v1/points/reservations` must not
 reach Points Service.
 
+Only `/assets/` and `/health` bypass authorization on the Points UI route. The
+SPA root and all workbench paths require an Auth decision.
+
 The Shanghai Nginx vhost must block `/health/live`, `/health/ready`, and
 `/__origin_health` from public clients. It must overwrite, not append,
 `X-Forwarded-For`, `X-Forwarded-Proto`, `X-Forwarded-Port`, and all `X-SG-*`

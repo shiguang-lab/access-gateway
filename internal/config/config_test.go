@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -76,6 +77,14 @@ func TestShanghaiRoutesValidateAndKeepMachineAPIsClosed(t *testing.T) {
 			switch route.PathPrefix {
 			case "/api/v1/", "/api/platform/v1/", "/api/v2/":
 				t.Fatalf("broad Points browser API route exposes future machine endpoints: %q", route.PathPrefix)
+			}
+			if route.PathPrefix == "/" {
+				if slices.Contains(route.PublicPrefixes, "/") {
+					t.Fatal("Points UI root must not bypass Gateway authorization")
+				}
+				if !slices.Contains(route.PublicPrefixes, "/assets/") || !slices.Contains(route.PublicPaths, "/health") {
+					t.Fatal("Points UI must keep only assets and health public")
+				}
 			}
 		}
 		key := route.Host + "\x00" + route.PathPrefix

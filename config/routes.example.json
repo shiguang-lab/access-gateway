@@ -177,9 +177,11 @@
       "product_id": "points-ui",
       "audience": "points-ui",
       "upstream": "http://points-web:3000",
-      "public_prefixes": [
-        "/assets/",
+      "public_paths": [
         "/health"
+      ],
+      "public_prefixes": [
+        "/assets/"
       ],
       "required_entitlements": [
         "platform:access"
