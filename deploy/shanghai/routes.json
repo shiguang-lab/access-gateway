@@ -135,7 +135,7 @@
       "product_id": "points-ui",
       "audience": "points-ui",
       "upstream": "http://127.0.0.1:19280",
-      "public_prefixes": ["/assets/", "/health"],
+      "public_prefixes": ["/"],
       "required_entitlements": ["platform:access"],
       "forward_authorization": false
     },
