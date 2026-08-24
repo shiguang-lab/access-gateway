@@ -65,6 +65,7 @@ func TestShanghaiRoutesValidateAndKeepMachineAPIsClosed(t *testing.T) {
 	required := map[string]bool{
 		"point.shiguanglab.com\x00/api/v2/tenant/points/": false,
 		"point.shiguanglab.com\x00/api/v2/admin/points/":  false,
+		"skills.shiguanglab.com\x00/api/v1/session":       false,
 		"skills.shiguanglab.com\x00/api/v1/":              false,
 	}
 	for _, route := range cfg.Routes {

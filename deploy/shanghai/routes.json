@@ -182,6 +182,19 @@
     },
     {
       "host": "skills.shiguanglab.com",
+      "path_prefix": "/api/v1/session",
+      "exact_path": true,
+      "strip_prefix": "/api",
+      "product_id": "lingguang-session",
+      "audience": "lingguang-api",
+      "upstream": "http://127.0.0.1:19380",
+      "allowed_methods": ["GET"],
+      "public_prefixes": ["/api/v1/session"],
+      "required_entitlements": [],
+      "forward_authorization": false
+    },
+    {
+      "host": "skills.shiguanglab.com",
       "path_prefix": "/api/v1/skills",
       "strip_prefix": "/api",
       "product_id": "lingguang-catalog",
