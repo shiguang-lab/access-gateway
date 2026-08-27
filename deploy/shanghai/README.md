@@ -4,6 +4,13 @@ This candidate serves only `point.shiguanglab.com` and
 `skills.shiguanglab.com`. It does not host the official website, Portal, or
 Auth Service.
 
+Japan `8.216.91.60` is only the public Nginx/TLS forwarder for these two hosts.
+It must not run this Gateway, Points, Lingguang, Auth, a database, a queue, a
+worker, or another new business service. Existing Japan vhosts and services,
+including `ai.jspin.cn`, Sub2API, and Huiguang, are immutable boundaries for
+this deployment. Shanghai `101.132.41.39` owns the candidate services below;
+Website/Portal/Auth remain owned by the independent Website team.
+
 ## Fixed local ports
 
 | Component | Address |
@@ -21,6 +28,12 @@ deployment owner must expose Auth Service session/logout routes and
 mTLS connection. Do not publish `/v1/authorize` as an unauthenticated public
 endpoint. The relay must preserve the Gateway credential and session-cookie
 contract without logging either value.
+
+The frozen WireGuard plus mTLS relay contract lives in
+[`auth-relay/`](auth-relay/). `127.0.0.1:19481` is Gateway-only: bridge-network
+product containers cannot use the host loopback address for Auth Directory or
+JWKS calls and require a separately approved private Auth endpoint. The
+Japan-Shanghai product-ingress tunnel is not the Auth relay upstream.
 
 ## Required inputs
 

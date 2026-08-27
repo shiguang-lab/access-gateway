@@ -1,0 +1,104 @@
+worker_processes auto;
+pid /tmp/nginx.pid;
+error_log /dev/stderr warn;
+
+events {
+    worker_connections 256;
+}
+
+http {
+    access_log off;
+    server_tokens off;
+    client_body_temp_path /tmp/client_body;
+    proxy_temp_path /tmp/proxy;
+    fastcgi_temp_path /tmp/fastcgi;
+    uwsgi_temp_path /tmp/uwsgi;
+    scgi_temp_path /tmp/scgi;
+
+    upstream auth_private_origin {
+        server auth-origin.shiguanglab.internal:18481;
+        keepalive 8;
+    }
+
+    server {
+        listen 127.0.0.1:19481;
+        server_name _;
+        client_max_body_size 64k;
+
+        proxy_http_version 1.1;
+        proxy_connect_timeout 2s;
+        proxy_send_timeout 5s;
+        proxy_read_timeout 10s;
+        proxy_next_upstream off;
+        proxy_request_buffering on;
+        proxy_buffering on;
+        proxy_intercept_errors off;
+        proxy_set_header Connection "";
+        proxy_set_header Host auth-origin.shiguanglab.internal;
+        proxy_set_header Cookie $http_cookie;
+        proxy_set_header X-SG-Gateway-Token $http_x_sg_gateway_token;
+        proxy_set_header X-SG-Request-ID $http_x_sg_request_id;
+        proxy_set_header X-Forwarded-For $http_x_forwarded_for;
+        proxy_set_header X-Forwarded-Host $http_x_forwarded_host;
+        proxy_set_header X-Forwarded-Proto $http_x_forwarded_proto;
+        proxy_set_header X-Forwarded-Port $http_x_forwarded_port;
+
+        proxy_ssl_server_name on;
+        proxy_ssl_name auth-origin.shiguanglab.internal;
+        proxy_ssl_verify on;
+        proxy_ssl_verify_depth 2;
+        proxy_ssl_trusted_certificate /run/secrets/auth_origin_ca;
+        proxy_ssl_certificate /run/secrets/auth_relay_client_cert;
+        proxy_ssl_certificate_key /run/secrets/auth_relay_client_key;
+        proxy_ssl_session_reuse on;
+
+        location = /health/live {
+            default_type application/json;
+            return 200 '{"status":"ok"}';
+        }
+
+        location = /health/ready {
+            limit_except GET { deny all; }
+            proxy_pass https://auth_private_origin;
+        }
+
+        location = /.well-known/jwks.json {
+            limit_except GET { deny all; }
+            proxy_pass https://auth_private_origin;
+        }
+
+        location = /v1/authorize {
+            limit_except POST { deny all; }
+            proxy_pass https://auth_private_origin;
+        }
+
+        location = /api/auth/session {
+            limit_except GET { deny all; }
+            proxy_pass https://auth_private_origin;
+        }
+
+        location = /api/auth/logout {
+            limit_except POST { deny all; }
+            proxy_pass https://auth_private_origin;
+        }
+
+        location = /api/auth/iam/points-role-assignments/search {
+            limit_except POST { deny all; }
+            proxy_pass https://auth_private_origin;
+        }
+
+        location = /api/auth/iam/points-role-assignments/resolve {
+            limit_except POST { deny all; }
+            proxy_pass https://auth_private_origin;
+        }
+
+        location ~ ^/api/auth/iam/points-role-assignments/[^/]+$ {
+            limit_except PUT { deny all; }
+            proxy_pass https://auth_private_origin;
+        }
+
+        location / {
+            return 404;
+        }
+    }
+}

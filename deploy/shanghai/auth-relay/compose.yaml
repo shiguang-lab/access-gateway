@@ -1,0 +1,43 @@
+name: shiguang-auth-relay-prod
+
+services:
+  auth-relay:
+    image: ${AUTH_RELAY_IMAGE:?set an immutable relay image ending in @sha256:digest}
+    network_mode: host
+    extra_hosts:
+      - "auth-origin.shiguanglab.internal:${AUTH_PRIVATE_ORIGIN_IP:?set the Website/Auth private origin IP}"
+    restart: unless-stopped
+    user: ${AUTH_RELAY_UID_GID:-101:101}
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - ./nginx.conf.example:/etc/nginx/nginx.conf:ro
+    secrets:
+      - auth_origin_ca
+      - auth_relay_client_cert
+      - auth_relay_client_key
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    stop_grace_period: 10s
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:19481/health/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+secrets:
+  auth_origin_ca:
+    file: ${AUTH_ORIGIN_CA_FILE:?set the Auth origin CA bundle path}
+  auth_relay_client_cert:
+    file: ${AUTH_RELAY_CLIENT_CERT_FILE:?set the relay client certificate path}
+  auth_relay_client_key:
+    file: ${AUTH_RELAY_CLIENT_KEY_FILE:?set the relay client key path}

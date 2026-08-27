@@ -1,0 +1,101 @@
+worker_processes auto;
+pid /tmp/nginx.pid;
+error_log /dev/stderr warn;
+
+events {
+    worker_connections 256;
+}
+
+http {
+    access_log off;
+    server_tokens off;
+    client_body_temp_path /tmp/client_body;
+    proxy_temp_path /tmp/proxy;
+    fastcgi_temp_path /tmp/fastcgi;
+    uwsgi_temp_path /tmp/uwsgi;
+    scgi_temp_path /tmp/scgi;
+
+    server {
+        listen <AUTH_PRIVATE_BIND_IP>:18481 ssl default_server;
+        ssl_reject_handshake on;
+    }
+
+    server {
+        listen <AUTH_PRIVATE_BIND_IP>:18481 ssl;
+        server_name auth-origin.shiguanglab.internal;
+
+        allow <SHANGHAI_RELAY_PRIVATE_IP>;
+        deny all;
+        client_max_body_size 64k;
+
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_session_tickets off;
+        ssl_certificate /run/secrets/auth_origin_cert;
+        ssl_certificate_key /run/secrets/auth_origin_key;
+        ssl_client_certificate /run/secrets/auth_relay_client_ca;
+        ssl_verify_client on;
+        ssl_verify_depth 2;
+
+        proxy_http_version 1.1;
+        proxy_connect_timeout 2s;
+        proxy_send_timeout 5s;
+        proxy_read_timeout 10s;
+        proxy_next_upstream off;
+        proxy_request_buffering on;
+        proxy_buffering on;
+        proxy_intercept_errors off;
+        proxy_set_header Connection "";
+        proxy_set_header Host shiguanglab.com;
+        proxy_set_header Cookie $http_cookie;
+        proxy_set_header X-SG-Gateway-Token $http_x_sg_gateway_token;
+        proxy_set_header X-SG-Request-ID $http_x_sg_request_id;
+        proxy_set_header X-Forwarded-For $http_x_forwarded_for;
+        proxy_set_header X-Forwarded-Host $http_x_forwarded_host;
+        proxy_set_header X-Forwarded-Proto $http_x_forwarded_proto;
+        proxy_set_header X-Forwarded-Port $http_x_forwarded_port;
+
+        location = /health/ready {
+            limit_except GET { deny all; }
+            proxy_pass http://127.0.0.1:8081;
+        }
+
+        location = /.well-known/jwks.json {
+            limit_except GET { deny all; }
+            proxy_pass http://127.0.0.1:8081;
+        }
+
+        location = /v1/authorize {
+            limit_except POST { deny all; }
+            proxy_pass http://127.0.0.1:8081;
+        }
+
+        location = /api/auth/session {
+            limit_except GET { deny all; }
+            proxy_pass http://127.0.0.1:8081;
+        }
+
+        location = /api/auth/logout {
+            limit_except POST { deny all; }
+            proxy_pass http://127.0.0.1:8081;
+        }
+
+        location = /api/auth/iam/points-role-assignments/search {
+            limit_except POST { deny all; }
+            proxy_pass http://127.0.0.1:8081;
+        }
+
+        location = /api/auth/iam/points-role-assignments/resolve {
+            limit_except POST { deny all; }
+            proxy_pass http://127.0.0.1:8081;
+        }
+
+        location ~ ^/api/auth/iam/points-role-assignments/[^/]+$ {
+            limit_except PUT { deny all; }
+            proxy_pass http://127.0.0.1:8081;
+        }
+
+        location / {
+            return 404;
+        }
+    }
+}
