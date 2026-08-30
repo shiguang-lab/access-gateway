@@ -32,7 +32,7 @@ services:
     environment:
       PGPASSWORD: local-points-only
     volumes:
-      - ../../points-service/migrations:/migrations:ro
+      - ../../../01-积分系统/points-service/migrations:/migrations:ro
     entrypoint: ["/bin/sh", "-ec"]
     command:
       - |
@@ -44,6 +44,8 @@ services:
     build:
       context: ../../auth-service
       dockerfile: Dockerfile.local
+      args:
+        GOPROXY: ${GOPROXY:-https://goproxy.cn,direct}
     depends_on:
       redis:
         condition: service_healthy
@@ -73,8 +75,10 @@ services:
 
   points-service:
     build:
-      context: ../../points-service
+      context: ../../../01-积分系统/points-service
       dockerfile: Dockerfile.local
+      args:
+        GOPROXY: ${GOPROXY:-https://goproxy.cn,direct}
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -95,7 +99,7 @@ services:
 
   points-web:
     build:
-      context: ../../points-web
+      context: ../../../01-积分系统/points-web
       dockerfile: Dockerfile.local
       args:
         VITE_LOGIN_ORIGIN: http://127.0.0.1:18080

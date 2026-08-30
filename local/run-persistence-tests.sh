@@ -1,7 +1,8 @@
 #!/bin/sh
 set -eu
 
-root="$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)"
+identity_root="$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)"
+workspace_root="$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)"
 network="points-local-test-$$"
 redis="points-local-redis-test-$$"
 postgres="points-local-postgres-test-$$"
@@ -29,8 +30,10 @@ for attempt in $(seq 1 30); do
   sleep 1
 done
 
-docker build --target test -f "$root/auth-service/Dockerfile.local" -t auth-service-local-test "$root/auth-service"
-docker build --target test -f "$root/points-service/Dockerfile.local" -t points-service-local-test "$root/points-service"
+docker build --build-arg GOPROXY="${GOPROXY:-https://goproxy.cn,direct}" --target test \
+  -f "$identity_root/auth-service/Dockerfile.local" -t auth-service-local-test "$identity_root/auth-service"
+docker build --build-arg GOPROXY="${GOPROXY:-https://goproxy.cn,direct}" --target test \
+  -f "$workspace_root/01-积分系统/points-service/Dockerfile.local" -t points-service-local-test "$workspace_root/01-积分系统/points-service"
 
 docker run --rm --network "$network" \
   -e AUTH_TEST_REDIS_URL="redis://$redis:6379/0" \
