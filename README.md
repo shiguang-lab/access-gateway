@@ -190,10 +190,12 @@ The fixture is rejected in production and never calls ZITADEL. It models the
 real cookie, return-to, audience, Gateway authorization, Auth-signed identity,
 and Points membership contracts; it is not a production identity provider.
 
-Every push to `main` publishes multi-architecture images to GHCR. `latest` is
-only a discovery tag; staging and production deployment records must pin
-`ghcr.io/shiguang-lab/access-gateway@sha256:<digest>`. Immutable `sha-*` tags
-help locate a build but do not replace digest pinning for deployment or rollback.
+Pushing a version tag matching `v*` publishes multi-architecture images to
+GHCR. A `v0.1.0` release publishes `0.1.0`, `v0.1.0`, `sha-*`, and `latest`
+tags. `latest` is only a discovery tag; staging and production deployment
+records must pin `ghcr.io/shiguang-lab/access-gateway@sha256:<digest>`.
+Immutable `sha-*` tags help locate a build but do not replace digest pinning
+for deployment or rollback.
 
 The module path assumes the future GitHub repository will be
 `github.com/shiguanglab/access-gateway`.
