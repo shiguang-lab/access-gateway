@@ -98,7 +98,7 @@ func NewHandler(cfg config.Config, authorizer authz.Authorizer, logger *slog.Log
 					request.Out.URL.Path = routeConfig.AddPathPrefix + ensureLeadingSlash(request.Out.URL.Path)
 					request.Out.URL.RawPath = ""
 				}
-				request.Out.Host = target.Host
+				request.Out.Host = metadata.host
 				request.Out.Header.Set("X-Forwarded-For", metadata.clientIP)
 				request.Out.Header.Set("X-Forwarded-Host", metadata.host)
 				request.Out.Header.Set("X-Forwarded-Proto", metadata.scheme)

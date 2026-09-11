@@ -668,6 +668,9 @@ func TestTrustedProxyMetadataReachesAuthAndUpstream(t *testing.T) {
 		t.Fatal(err)
 	}
 	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.Host != "point.shiguanglab.com" {
+			t.Errorf("host = %q", request.Host)
+		}
 		if got := request.Header.Get("X-Forwarded-For"); got != "203.0.113.24" {
 			t.Errorf("forwarded for = %q", got)
 		}
