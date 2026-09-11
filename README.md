@@ -20,16 +20,14 @@ code never receives machine client credentials.
 ## Current scope
 
 - Exact host plus longest path-prefix routing from a JSON configuration file
+- Explicit route priority, method and request-header matching
 - Public and protected path policies
 - Fail-closed authorization through `auth-service`
 - Removal of external `X-SG-*` and `X-User-*` identity headers
 - Request and response isolation for `__Secure-sg_session`
 - Reverse proxy support based on Go's standard `httputil.ReverseProxy`
+- Static responses, path rewriting, and request/response header policies
 - Liveness and readiness endpoints
-
-Before production, place the service behind the selected L4/WAF entry, add
-mTLS to `auth-service` and product origins, and complete rate limiting and
-OpenTelemetry integration.
 
 ## Configuration
 
@@ -64,13 +62,18 @@ authentication, or JSON decoding error fails closed.
 ## Route configuration
 
 Routes use exact host matching and then select the longest matching
-`path_prefix`. This allows `shiguanglab.com/_auth/login/*` to reach Auth
+`path_prefix`. A larger optional `priority` is evaluated first when a
+header- or method-constrained route must override a longer general route.
+This allows `shiguanglab.com/_auth/login/*` to reach Auth
 Service while normal website paths reach the static website origin. Use
 `public_paths` for exact anonymous paths and `public_prefixes` for anonymous
 subtrees. Prefixes ending in `/` match a subtree; other prefixes match one
 exact path for backwards compatibility.
 Set `strip_prefix` when an externally namespaced API should reach an upstream
 that serves from `/`; it must be a parent of the route's `path_prefix`.
+Use `rewrite_path` for an exact replacement or `add_path_prefix` to prepend an
+upstream namespace. Route files are decoded strictly, so unknown fields stop
+the service during validation.
 
 ```json
 {
@@ -145,6 +148,13 @@ only to `127.0.0.1:19480`, requires a digest-pinned image and a read-only Auth
 credential file, and keeps product services in their independent repositories
 and Compose projects. The official Website, Portal, and Auth Service are not
 deployed by this stack.
+
+## NAS production
+
+The complete NAS route policy and candidate Compose stack are documented in
+[`deploy/nas/README.md`](deploy/nas/README.md). The Go gateway owns HTTP host,
+path, authentication, header, and upstream routing. TLS remains at the existing
+external ingress.
 
 ## Local Points identity acceptance
 

@@ -27,6 +27,7 @@ type Handler struct {
 	identityHeaderSigningSecret []byte
 	now                         func() time.Time
 	sessionCookieName           string
+	responseHeaders             map[string]string
 	routes                      map[string][]*route
 	trustedProxyCIDRs           []*net.IPNet
 	logger                      *slog.Logger
@@ -59,6 +60,7 @@ func NewHandler(cfg config.Config, authorizer authz.Authorizer, logger *slog.Log
 		identityHeaderSigningSecret: []byte(cfg.IdentityHeaderSigningSecret),
 		now:                         time.Now,
 		sessionCookieName:           cfg.SessionCookieName,
+		responseHeaders:             cfg.ResponseHeaders,
 		routes:                      make(map[string][]*route, len(cfg.Routes)),
 		trustedProxyCIDRs:           cfg.TrustedProxyCIDRs,
 		logger:                      logger,
@@ -69,6 +71,10 @@ func NewHandler(cfg config.Config, authorizer authz.Authorizer, logger *slog.Log
 		}
 		if routeConfig.PathPrefix == "" {
 			routeConfig.PathPrefix = "/"
+		}
+		if routeConfig.Response != nil {
+			handler.routes[routeConfig.Host] = append(handler.routes[routeConfig.Host], &route{config: routeConfig})
+			continue
 		}
 		target, err := url.Parse(routeConfig.Upstream)
 		if err != nil {
@@ -85,6 +91,13 @@ func NewHandler(cfg config.Config, authorizer authz.Authorizer, logger *slog.Log
 					request.Out.URL.RawPath = ""
 				}
 				request.SetURL(target)
+				if routeConfig.RewritePath != "" {
+					request.Out.URL.Path = routeConfig.RewritePath
+					request.Out.URL.RawPath = ""
+				} else if routeConfig.AddPathPrefix != "" {
+					request.Out.URL.Path = routeConfig.AddPathPrefix + ensureLeadingSlash(request.Out.URL.Path)
+					request.Out.URL.RawPath = ""
+				}
 				request.Out.Host = target.Host
 				request.Out.Header.Set("X-Forwarded-For", metadata.clientIP)
 				request.Out.Header.Set("X-Forwarded-Host", metadata.host)
@@ -96,6 +109,7 @@ func NewHandler(cfg config.Config, authorizer authz.Authorizer, logger *slog.Log
 				if !routeConfig.ForwardSessionCookie {
 					filterResponseCookies(response.Header, cfg.SessionCookieName)
 				}
+				applyResponseHeaders(response.Header, cfg.ResponseHeaders, routeConfig.ResponseHeaders, routeConfig.RemoveResponseHeaders)
 				return nil
 			},
 			ErrorHandler: func(response http.ResponseWriter, request *http.Request, err error) {
@@ -109,14 +123,23 @@ func NewHandler(cfg config.Config, authorizer authz.Authorizer, logger *slog.Log
 		)
 	}
 	for host := range handler.routes {
-		sort.Slice(handler.routes[host], func(i, j int) bool {
-			return len(handler.routes[host][i].config.PathPrefix) > len(handler.routes[host][j].config.PathPrefix)
+		sort.SliceStable(handler.routes[host], func(i, j int) bool {
+			left := handler.routes[host][i].config
+			right := handler.routes[host][j].config
+			if left.Priority != right.Priority {
+				return left.Priority > right.Priority
+			}
+			if len(left.PathPrefix) != len(right.PathPrefix) {
+				return len(left.PathPrefix) > len(right.PathPrefix)
+			}
+			return len(left.HeaderMatches) > len(right.HeaderMatches)
 		})
 	}
 	return handler, nil
 }
 
 func (h *Handler) ServeHTTP(response http.ResponseWriter, request *http.Request) {
+	applyResponseHeaders(response.Header(), h.responseHeaders, nil, nil)
 	if request.URL.Path == "/health/live" || request.URL.Path == "/health/ready" {
 		response.Header().Set("Content-Type", "application/json")
 		response.WriteHeader(http.StatusOK)
@@ -127,14 +150,13 @@ func (h *Handler) ServeHTTP(response http.ResponseWriter, request *http.Request)
 	metadata := h.metadataFor(request)
 	request = request.WithContext(context.WithValue(request.Context(), requestMetadataKey{}, metadata))
 	host := metadata.host
-	matched, ok := h.matchRoute(host, request.URL.Path)
+	matched, ok, methodMismatch := h.matchRoute(host, request)
 	if !ok {
+		if methodMismatch {
+			http.Error(response, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+			return
+		}
 		http.Error(response, http.StatusText(http.StatusMisdirectedRequest), http.StatusMisdirectedRequest)
-		return
-	}
-	if !methodAllowed(request.Method, matched.config.AllowedMethods) {
-		response.Header().Set("Allow", strings.Join(matched.config.AllowedMethods, ", "))
-		http.Error(response, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -142,7 +164,7 @@ func (h *Handler) ServeHTTP(response http.ResponseWriter, request *http.Request)
 	if requestID == "" {
 		requestID = newRequestID()
 	}
-	public := isPublicPath(request.URL.Path, matched.config.PublicPaths, matched.config.PublicPrefixes)
+	public := matched.config.Public || isPublicPath(request.URL.Path, matched.config.PublicPaths, matched.config.PublicPrefixes)
 	decision := authz.DecisionResponse{Allow: true, Status: http.StatusOK}
 	if !public {
 		var err error
@@ -183,7 +205,11 @@ func (h *Handler) ServeHTTP(response http.ResponseWriter, request *http.Request)
 		return
 	}
 
+	inboundIdentity := request.Header.Get("X-SG-Identity")
 	sanitizeRequest(request.Header, h.sessionCookieName, matched.config.ForwardAuthorization, matched.config.ForwardSessionCookie)
+	if matched.config.ForwardIdentityAssertion && inboundIdentity != "" {
+		request.Header.Set("X-SG-Identity", inboundIdentity)
+	}
 	if matched.config.ForwardGatewayToken {
 		request.Header.Set("X-SG-Gateway-Token", h.authServiceToken)
 	}
@@ -196,6 +222,18 @@ func (h *Handler) ServeHTTP(response http.ResponseWriter, request *http.Request)
 			request.Header.Set("X-SG-Identity-Signature", signIdentityHeader(timestamp, decision.IdentityToken, h.identityHeaderSigningSecret))
 		}
 	}
+	for _, name := range matched.config.RemoveRequestHeaders {
+		request.Header.Del(name)
+	}
+	for name, value := range matched.config.RequestHeaders {
+		request.Header.Set(name, value)
+	}
+	if matched.config.Response != nil {
+		applyResponseHeaders(response.Header(), matched.config.Response.Headers, matched.config.ResponseHeaders, matched.config.RemoveResponseHeaders)
+		response.WriteHeader(matched.config.Response.Status)
+		_, _ = response.Write([]byte(matched.config.Response.Body))
+		return
+	}
 	matched.proxy.ServeHTTP(response, request)
 }
 
@@ -205,14 +243,52 @@ func signIdentityHeader(timestamp, identity string, secret []byte) string {
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
-func (h *Handler) matchRoute(host, path string) (*route, bool) {
+func (h *Handler) matchRoute(host string, request *http.Request) (*route, bool, bool) {
 	for _, candidate := range h.routes[host] {
-		if candidate.config.ExactPath && path == candidate.config.PathPrefix ||
-			!candidate.config.ExactPath && pathPrefixMatch(path, candidate.config.PathPrefix) {
-			return candidate, true
+		path := request.URL.Path
+		pathMatches := candidate.config.ExactPath && path == candidate.config.PathPrefix ||
+			!candidate.config.ExactPath && pathPrefixMatch(path, candidate.config.PathPrefix)
+		if !pathMatches || !headersMatch(request.Header, candidate.config.HeaderMatches) {
+			continue
+		}
+		if !methodAllowed(request.Method, candidate.config.AllowedMethods) {
+			if candidate.config.FallthroughOnMethodMiss {
+				continue
+			}
+			return nil, false, true
+		}
+		return candidate, true, false
+	}
+	return nil, false, false
+}
+
+func headersMatch(header http.Header, matches []config.HeaderMatch) bool {
+	for _, match := range matches {
+		value := header.Get(match.Name)
+		if value == "" || match.Value != "" && value != match.Value || match.ValuePrefix != "" && !strings.HasPrefix(value, match.ValuePrefix) {
+			return false
 		}
 	}
-	return nil, false
+	return true
+}
+
+func applyResponseHeaders(header http.Header, first, second map[string]string, remove []string) {
+	for name, value := range first {
+		header.Set(name, value)
+	}
+	for name, value := range second {
+		header.Set(name, value)
+	}
+	for _, name := range remove {
+		header.Del(name)
+	}
+}
+
+func ensureLeadingSlash(path string) string {
+	if strings.HasPrefix(path, "/") {
+		return path
+	}
+	return "/" + path
 }
 
 func methodAllowed(method string, allowed []string) bool {
