@@ -151,10 +151,10 @@ deployed by this stack.
 
 ## NAS production
 
-The complete NAS route policy and candidate Compose stack are documented in
-[`deploy/nas/README.md`](deploy/nas/README.md). The Go gateway owns HTTP host,
-path, authentication, header, and upstream routing. TLS remains at the existing
-external ingress.
+The production route policy and Compose stack live in the separate
+`shiguang/deploy` repository under `access-gateway/`. This repository owns the
+gateway executable and route contract. TLS remains at the existing external
+ingress.
 
 ## Local Points identity acceptance
 
