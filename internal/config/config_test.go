@@ -99,6 +99,19 @@ func TestShanghaiRoutesValidateAndKeepMachineAPIsClosed(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsUnknownRouteFields(t *testing.T) {
+	routes := filepath.Join(t.TempDir(), "routes.json")
+	if err := os.WriteFile(routes, []byte(`{"routes":[{"host":"example.com","path_prefix":"/","product_id":"x","audience":"x","upstream":"http://upstream:8080","publik":true}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AUTH_SERVICE_URL", "http://auth-service:8081")
+	t.Setenv("AUTH_SERVICE_TOKEN", "gateway-secret")
+	t.Setenv("ROUTES_FILE", routes)
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("unknown route field error = %v", err)
+	}
+}
+
 func TestShanghaiNginxTemplatesBlockPublicHealth(t *testing.T) {
 	root := filepath.Join("..", "..", "deploy", "shanghai", "nginx")
 	for _, name := range []string{"shanghai-origin-wireguard.conf.example", "japan-ingress.conf.example"} {
@@ -203,7 +216,7 @@ func TestValidateRestrictsForwardedGatewayTokenToAuthService(t *testing.T) {
 	}
 }
 
-func TestValidateRestrictsForwardedSessionCookieToAuthService(t *testing.T) {
+func TestValidateAllowsExplicitSessionForwardingToSelfAuthorizingUpstream(t *testing.T) {
 	base := Config{
 		AuthServiceURL:    "http://auth-service:8081",
 		AuthServiceToken:  "secret",
@@ -217,8 +230,8 @@ func TestValidateRestrictsForwardedSessionCookieToAuthService(t *testing.T) {
 			ForwardSessionCookie: true,
 		}},
 	}
-	if err := base.Validate(); err == nil {
-		t.Fatal("non-auth route accepted with forwarded session cookie")
+	if err := base.Validate(); err != nil {
+		t.Fatalf("explicit session forwarding was rejected: %v", err)
 	}
 }
 

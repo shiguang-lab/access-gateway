@@ -283,6 +283,92 @@ func TestHandlerUsesLongestPathPrefix(t *testing.T) {
 	}
 }
 
+func TestHandlerUsesExplicitPriorityForConstrainedRoutes(t *testing.T) {
+	identityUpstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if got := request.Header.Get("X-SG-Identity"); got != "signed.assertion" {
+			t.Errorf("identity assertion = %q", got)
+		}
+		response.WriteHeader(http.StatusNoContent)
+	}))
+	defer identityUpstream.Close()
+	apiUpstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		t.Error("ordinary API route received an identity assertion request")
+		response.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer apiUpstream.Close()
+
+	handler, err := NewHandler(config.Config{SessionCookieName: "__Secure-sg_session", Routes: []config.Route{
+		{Host: "model-gateway.shiguanglab.com", PathPrefix: "/api/", ProductID: "model-gateway", Audience: "model-gateway-bff", Upstream: apiUpstream.URL},
+		{Host: "model-gateway.shiguanglab.com", PathPrefix: "/", Priority: 100, HeaderMatches: []config.HeaderMatch{{Name: "X-SG-Identity"}}, ProductID: "model-gateway-identity", Audience: "model-gateway-bff", Upstream: identityUpstream.URL, Public: true, ForwardIdentityAssertion: true},
+	}}, &fakeAuthorizer{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "https://model-gateway.shiguanglab.com/api/chat", nil)
+	request.Header.Set("X-SG-Identity", "signed.assertion")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status = %d", response.Code)
+	}
+}
+
+func TestMethodConstrainedRouteFallsThroughToAnotherMatchingRoute(t *testing.T) {
+	apiUpstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		response.WriteHeader(http.StatusNoContent)
+	}))
+	defer apiUpstream.Close()
+	handler, err := NewHandler(config.Config{SessionCookieName: "__Secure-sg_session", Routes: []config.Route{
+		{Host: "model-gateway.shiguanglab.com", PathPrefix: "/api/", Priority: 200, AllowedMethods: []string{http.MethodOptions}, FallthroughOnMethodMiss: true, Public: true, Response: &config.StaticResponse{Status: http.StatusNoContent}},
+		{Host: "model-gateway.shiguanglab.com", PathPrefix: "/api/", ProductID: "model-gateway", Audience: "model-gateway-bff", Upstream: apiUpstream.URL, Public: true},
+	}}, &fakeAuthorizer{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "https://model-gateway.shiguanglab.com/api/models", nil))
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("GET status = %d", response.Code)
+	}
+}
+
+func TestHandlerSupportsStaticResponsesAndPathRewrites(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/public-media/images/a.png" {
+			t.Errorf("rewritten path = %q", request.URL.Path)
+		}
+		response.Header().Set("Server", "storage")
+		response.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+	handler, err := NewHandler(config.Config{
+		SessionCookieName: "__Secure-sg_session",
+		ResponseHeaders:   map[string]string{"X-Content-Type-Options": "nosniff"},
+		Routes: []config.Route{
+			{Host: "model-gateway.shiguanglab.com", PathPrefix: "/api/", AllowedMethods: []string{http.MethodOptions}, Public: true, Response: &config.StaticResponse{Status: http.StatusNoContent, Headers: map[string]string{"Access-Control-Allow-Origin": "https://console.shiguanglab.com"}}},
+			{Host: "static.shiguanglab.com", PathPrefix: "/", AllowedMethods: []string{http.MethodGet, http.MethodHead}, ProductID: "media", Audience: "media", Upstream: upstream.URL, Public: true, AddPathPrefix: "/public-media", RemoveResponseHeaders: []string{"Server"}},
+		},
+	}, &fakeAuthorizer{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	preflight := httptest.NewRecorder()
+	handler.ServeHTTP(preflight, httptest.NewRequest(http.MethodOptions, "https://model-gateway.shiguanglab.com/api/chat", nil))
+	if preflight.Code != http.StatusNoContent || preflight.Header().Get("Access-Control-Allow-Origin") != "https://console.shiguanglab.com" || preflight.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Fatalf("preflight status/headers = %d %#v", preflight.Code, preflight.Header())
+	}
+	media := httptest.NewRecorder()
+	handler.ServeHTTP(media, httptest.NewRequest(http.MethodGet, "https://static.shiguanglab.com/images/a.png", nil))
+	if media.Code != http.StatusNoContent || media.Header().Get("Server") != "" {
+		t.Fatalf("media status/headers = %d %#v", media.Code, media.Header())
+	}
+	write := httptest.NewRecorder()
+	handler.ServeHTTP(write, httptest.NewRequest(http.MethodPut, "https://static.shiguanglab.com/images/a.png", nil))
+	if write.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("write status = %d", write.Code)
+	}
+}
+
 func TestHandlerStripsConfiguredUpstreamPathPrefix(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if got := request.URL.Path; got != "/v1/me/points" {
@@ -582,6 +668,9 @@ func TestTrustedProxyMetadataReachesAuthAndUpstream(t *testing.T) {
 		t.Fatal(err)
 	}
 	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.Host != "point.shiguanglab.com" {
+			t.Errorf("host = %q", request.Host)
+		}
 		if got := request.Header.Get("X-Forwarded-For"); got != "203.0.113.24" {
 			t.Errorf("forwarded for = %q", got)
 		}
@@ -640,7 +729,7 @@ func TestUntrustedProxyHeadersAreIgnored(t *testing.T) {
 	authorizer := &fakeAuthorizer{decision: authz.DecisionResponse{Allow: true, Status: http.StatusOK}}
 	handler, err := NewHandler(config.Config{
 		SessionCookieName: "__Secure-sg_session",
-		Routes: []config.Route{{Host: "point.shiguanglab.com", PathPrefix: "/", ProductID: "points-ui", Audience: "points-ui", Upstream: upstream.URL}},
+		Routes:            []config.Route{{Host: "point.shiguanglab.com", PathPrefix: "/", ProductID: "points-ui", Audience: "points-ui", Upstream: upstream.URL}},
 	}, authorizer, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatal(err)
